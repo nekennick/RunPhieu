@@ -4,7 +4,7 @@ import win32com.client
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
-    QLineEdit, QFormLayout, QDialog, QDialogButtonBox
+    QLineEdit, QFormLayout, QDialog, QDialogButtonBox, QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import os
@@ -82,6 +82,11 @@ class WordProcessorApp(QWidget):
         self.replace_button.clicked.connect(self.replace_selected_files)
         button_layout.addWidget(self.replace_button)
 
+        # Thêm nút Save As
+        self.save_as_button = QPushButton("Lưu tất cả file")
+        self.save_as_button.clicked.connect(self.save_all_files_as)
+        button_layout.addWidget(self.save_as_button)
+
         self.layout.addLayout(button_layout)
         self.setLayout(self.layout)
 
@@ -99,7 +104,7 @@ class WordProcessorApp(QWidget):
                 item_text = doc.Name
                 item = QListWidgetItem(item_text)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Unchecked)
+                item.setCheckState(Qt.Checked)  # Tự động check vào tất cả file
                 self.file_list.addItem(item)
         except Exception as e:
             self.status_label.setText(f"Lỗi: {e}")
@@ -192,6 +197,30 @@ class WordProcessorApp(QWidget):
     def on_replace_finished(self, message):
         self.status_label.setText(message)
 
+    def save_all_files_as(self):
+        # Chọn thư mục đích
+        folder_path = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu file")
+        if not folder_path:
+            return
+
+        selected_files = []
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            if item.checkState() == Qt.Checked:
+                selected_files.append(item.text())
+
+        if not selected_files:
+            self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để lưu.")
+            return
+
+        self.status_label.setText("⏳ Đang lưu file, vui lòng chờ...")
+        self.save_thread = SaveAsWorker(selected_files, folder_path)
+        self.save_thread.finished.connect(self.on_save_finished)
+        self.save_thread.start()
+
+    def on_save_finished(self, message):
+        self.status_label.setText(message)
+
     
             
 
@@ -267,6 +296,76 @@ class ReplaceDialog(QDialog):
     
 
    
+
+
+class SaveAsWorker(QThread):
+    finished = pyqtSignal(str)
+    def __init__(self, doc_names, folder_path, parent=None):
+        super().__init__(parent)
+        self.doc_names = doc_names
+        self.folder_path = folder_path
+
+    def find_so_phieu(self, doc):
+        """Tìm số phiếu trong document"""
+        import re
+        try:
+            # Tìm pattern "Số: XX.OXX.XX.XXXX"
+            pattern = r'Số:\s*(\d{2}\.O\d{2}\.\d{2}\.\d{4})'
+            for para in doc.Paragraphs:
+                match = re.search(pattern, para.Range.Text)
+                if match:
+                    return match.group(1)  # Trả về số phiếu
+            # Tìm trong bảng
+            for table in doc.Tables:
+                for row in table.Rows:
+                    for cell in row.Cells:
+                        match = re.search(pattern, cell.Range.Text)
+                        if match:
+                            return match.group(1)
+        except Exception as e:
+            print(f"[DEBUG] Exception finding so phieu: {e}")
+        return None
+
+    def run(self):
+        import pythoncom
+        import win32com.client
+        import os
+        pythoncom.CoInitialize()
+        try:
+            word_app = win32com.client.GetActiveObject("Word.Application")
+            saved_count = 0
+            for i in range(word_app.Documents.Count):
+                doc = word_app.Documents.Item(i + 1)
+                if doc.Name in self.doc_names:
+                    try:
+                        # Tìm số phiếu trong document
+                        so_phieu = self.find_so_phieu(doc)
+                        if so_phieu:
+                            # Chuyển đổi định dạng số phiếu: XX.OXX.XX.XXXX -> XX.XXXX-XX
+                            parts = so_phieu.split('.')
+                            if len(parts) == 4:
+                                # parts[0] = XX, parts[1] = OXX, parts[2] = XX, parts[3] = XXXX
+                                new_format = f"{parts[2]}.{parts[3]}-{parts[0]}"
+                                file_name = f"{new_format}{os.path.splitext(doc.Name)[1]}"
+                            else:
+                                # Nếu format không đúng, dùng số phiếu gốc
+                                file_name = f"Phieu_{so_phieu}{os.path.splitext(doc.Name)[1]}"
+                        else:
+                            # Nếu không tìm thấy số phiếu, dùng tên gốc
+                            file_name = os.path.splitext(doc.Name)[0] + "_saved" + os.path.splitext(doc.Name)[1]
+                        
+                        file_path = os.path.join(self.folder_path, file_name)
+                        # Lưu file với định dạng gốc
+                        doc.SaveAs(file_path)
+                        saved_count += 1
+                        print(f"[DEBUG] Saved: {file_name}")
+                    except Exception as e:
+                        print(f"[DEBUG] Exception saving {doc.Name}: {e}")
+            self.finished.emit(f"✅ Đã lưu {saved_count} file vào thư mục đã chọn.")
+        except Exception as e:
+            self.finished.emit(f"Lỗi lưu file: {e}")
+        finally:
+            pythoncom.CoUninitialize()
 
 
 if __name__ == "__main__":
