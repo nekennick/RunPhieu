@@ -30,22 +30,53 @@ class ReplaceWorker(QThread):
                     try:
                         # Lọc tất cả các bảng ở trang đầu tiên
                         tables_on_first_page = [table for table in doc.Tables if table.Range.Information(3) == 1]
+                        print(f"[DEBUG] Tổng số bảng trên trang đầu: {len(tables_on_first_page)}")
                         if tables_on_first_page:
-                            table = tables_on_first_page[-1]  # bảng cuối cùng trên trang đầu
-                            for row in table.Rows:
-                                for cell in row.Cells:
-                                    print(f"[DEBUG] Cell: {repr(cell.Range.Text)}")
-                                    for old, new in self.replacements:
-                                        if old in cell.Range.Text:
-                                            print(f"[DEBUG] Found '{old}' in cell!")
-                                            # Thay thế bằng cách tìm vị trí và thay thế trực tiếp
-                                            cell_range = cell.Range
-                                            start_pos = cell_range.Start
-                                            end_pos = cell_range.End
-                                            search_range = doc.Range(start_pos, end_pos)
-                                            search_range.Find.Text = old
-                                            if search_range.Find.Execute():
-                                                search_range.Text = new
+                            # Xử lý tất cả các bảng trên trang đầu tiên
+                            for table_idx, table in enumerate(tables_on_first_page):
+                                print(f"[DEBUG] ===== Đang xử lý Bảng {table_idx + 1} =====")
+                                print(f"[DEBUG] Số row trong bảng {table_idx + 1}: {table.Rows.Count}")
+                                print(f"[DEBUG] Số column trong bảng {table_idx + 1}: {table.Columns.Count}")
+                                
+                                try:
+                                    # Sử dụng Range.Cells để tránh lỗi với merged cells
+                                    for cell_idx, cell in enumerate(table.Range.Cells):
+                                        cell_text = cell.Range.Text.strip()
+                                        if cell_text:  # Chỉ in cell có nội dung
+                                            print(f"[DEBUG] Bảng{table_idx+1} - Cell {cell_idx+1}: '{cell_text}'")
+                                            
+                                            for old, new in self.replacements:
+                                                if old in cell_text:
+                                                    print(f"[DEBUG] ✓ Found '{old}' in Bảng{table_idx+1} - Cell {cell_idx+1}!")
+                                                    try:
+                                                        # Thay thế bằng cách tìm vị trí và thay thế trực tiếp
+                                                        cell_range = cell.Range
+                                                        start_pos = cell_range.Start
+                                                        end_pos = cell_range.End
+                                                        search_range = doc.Range(start_pos, end_pos)
+                                                        search_range.Find.Text = old
+                                                        if search_range.Find.Execute():
+                                                            search_range.Text = new
+                                                            print(f"[DEBUG] ✓ Replaced '{old}' with '{new}' in Bảng{table_idx+1} - Cell {cell_idx+1}")
+                                                        else:
+                                                            print(f"[DEBUG] ✗ Find.Execute() failed for '{old}' in Bảng{table_idx+1} - Cell {cell_idx+1}")
+                                                    except Exception as e:
+                                                        print(f"[DEBUG] ✗ Exception replacing '{old}' in Bảng{table_idx+1} - Cell {cell_idx+1}: {e}")
+                                                else:
+                                                    print(f"[DEBUG] - NOT found '{old}' in Bảng{table_idx+1} - Cell {cell_idx+1}")
+                                except Exception as e:
+                                    print(f"[DEBUG] Exception processing Bảng{table_idx+1}: {e}")
+                                    # Fallback: thử cách khác nếu có lỗi
+                                    try:
+                                        for old, new in self.replacements:
+                                            # Thay thế trong toàn bộ Range của bảng
+                                            table_range = table.Range
+                                            table_range.Find.Text = old
+                                            table_range.Find.Replacement.Text = new
+                                            if table_range.Find.Execute(Replace=2, Forward=True):
+                                                print(f"[DEBUG] ✓ Replaced '{old}' with '{new}' in Bảng{table_idx+1} (fallback method)")
+                                    except Exception as e2:
+                                        print(f"[DEBUG] Fallback also failed for Bảng{table_idx+1}: {e2}")
                     except Exception as e:
                         print(f"[DEBUG] Exception in replace: {e}")
             self.finished.emit("✅ Đã thay thế xong các tài liệu được chọn.")
@@ -57,7 +88,7 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Word File Processor")
+        self.setWindowTitle("Xử lý phiếu xuất nhập kho hàng loạt | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
         self.layout = QVBoxLayout()
@@ -82,7 +113,12 @@ class WordProcessorApp(QWidget):
         self.replace_button.clicked.connect(self.replace_selected_files)
         button_layout.addWidget(self.replace_button)
 
-        # Thêm nút Save As
+        # Thêm nút In trang đầu
+        self.print_button = QPushButton("In trang đầu")
+        self.print_button.clicked.connect(self.print_first_pages)
+        button_layout.addWidget(self.print_button)
+
+        # Thêm nút Save As (cuối cùng)
         self.save_as_button = QPushButton("Lưu tất cả file")
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
@@ -219,6 +255,25 @@ class WordProcessorApp(QWidget):
         self.save_thread.start()
 
     def on_save_finished(self, message):
+        self.status_label.setText(message)
+
+    def print_first_pages(self):
+        selected_files = []
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            if item.checkState() == Qt.Checked:
+                selected_files.append(item.text())
+
+        if not selected_files:
+            self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để in.")
+            return
+
+        self.status_label.setText("⏳ Đang in trang đầu, vui lòng chờ...")
+        self.print_thread = PrintWorker(selected_files)
+        self.print_thread.finished.connect(self.on_print_finished)
+        self.print_thread.start()
+
+    def on_print_finished(self, message):
         self.status_label.setText(message)
 
     
@@ -364,6 +419,36 @@ class SaveAsWorker(QThread):
             self.finished.emit(f"✅ Đã lưu {saved_count} file vào thư mục đã chọn.")
         except Exception as e:
             self.finished.emit(f"Lỗi lưu file: {e}")
+        finally:
+            pythoncom.CoUninitialize()
+
+
+class PrintWorker(QThread):
+    finished = pyqtSignal(str)
+    def __init__(self, doc_names, parent=None):
+        super().__init__(parent)
+        self.doc_names = doc_names
+
+    def run(self):
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitialize()
+        try:
+            word_app = win32com.client.GetActiveObject("Word.Application")
+            printed_count = 0
+            for i in range(word_app.Documents.Count):
+                doc = word_app.Documents.Item(i + 1)
+                if doc.Name in self.doc_names:
+                    try:
+                        # In trang đầu tiên
+                        doc.PrintOut(From=1, To=1)
+                        printed_count += 1
+                        print(f"[DEBUG] Printed: {doc.Name}")
+                    except Exception as e:
+                        print(f"[DEBUG] Exception printing {doc.Name}: {e}")
+            self.finished.emit(f"✅ Đã in trang đầu của {printed_count} file.")
+        except Exception as e:
+            self.finished.emit(f"Lỗi in file: {e}")
         finally:
             pythoncom.CoUninitialize()
 
