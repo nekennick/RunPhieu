@@ -4,7 +4,8 @@ import win32com.client
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
-    QLineEdit, QFormLayout, QDialog, QDialogButtonBox, QFileDialog
+    QLineEdit, QFormLayout, QDialog, QDialogButtonBox, QFileDialog,
+    QScrollArea, QMessageBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import os
@@ -239,7 +240,7 @@ class WordProcessorApp(QWidget):
     def replace_selected_files(self):
         dialog = ReplaceDialog(self)
         if dialog.exec_() == QDialog.Accepted:
-            replacements = dialog.get_pairs()
+            replacements = dialog.get_replacement_pairs()
             selected_files = []
             for i in range(self.file_list.count()):
                 item = self.file_list.item(i)
@@ -436,77 +437,301 @@ class WordProcessorApp(QWidget):
             print(f"[DEBUG] Lỗi trích xuất họ tên: {e}")
             return None
 
+
+
     
             
 
 class ReplaceDialog(QDialog):
-    def __init__(self, parent=None, replace_callback=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Nhập các cặp cụm từ cần thay thế")
-        self.layout = QVBoxLayout()
-        self.form_layout = QFormLayout()
-        self.pair_edits = []
-        for i in range(5):  # Cho phép nhập tối đa 5 cặp
-            old_edit = QLineEdit()
-            new_edit = QLineEdit()
-            self.form_layout.addRow(f"Từ cũ {i+1}", old_edit)
-            self.form_layout.addRow(f"Từ mới {i+1}", new_edit)
-            self.pair_edits.append((old_edit, new_edit))
-        self.layout.addLayout(self.form_layout)
-        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        self.button_box.accepted.connect(self.on_ok_clicked)
-        self.button_box.rejected.connect(self.reject)
-        self.layout.addWidget(self.button_box)
-        # Thêm nút Thay thế
-        self.replace_button = QPushButton("Thay thế")
-        self.replace_button.clicked.connect(self.on_replace_clicked)
-        self.layout.addWidget(self.replace_button)
-        self.setLayout(self.layout)
+        self.setWindowTitle("Thay thế cụm từ")
+        self.setModal(True)
+        self.resize(500, 400)
+        
+        # Danh sách các cặp từ thay thế
+        self.replacement_pairs = []
+        
+        # Layout chính
+        layout = QVBoxLayout()
+        
+        # Tiêu đề
+        title_label = QLabel("Nhập các cặp từ cần thay thế:")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 10px;")
+        layout.addWidget(title_label)
+        
+        # Scroll area cho danh sách các cặp từ
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setMaximumHeight(250)
+        
+        # Widget chứa danh sách
+        self.pairs_widget = QWidget()
+        self.pairs_layout = QVBoxLayout(self.pairs_widget)
+        self.pairs_layout.setSpacing(5)
+        
+        scroll_area.setWidget(self.pairs_widget)
+        layout.addWidget(scroll_area)
+        
+        # Nút thêm cặp từ mới
+        add_button = QPushButton("➕ Thêm cặp từ mới")
+        add_button.clicked.connect(self.add_pair)
+        add_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        layout.addWidget(add_button)
+        
+        # Nút xóa tất cả
+        clear_button = QPushButton("🗑️ Xóa tất cả")
+        clear_button.clicked.connect(self.clear_all_pairs)
+        clear_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+        """)
+        layout.addWidget(clear_button)
+        
+        # Nút OK và Cancel
+        button_layout = QHBoxLayout()
+        
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(self.accept)
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        
+        cancel_button = QPushButton("Hủy")
+        cancel_button.clicked.connect(self.reject)
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #9E9E9E;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #757575;
+            }
+        """)
+        
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+        
+        # Tải các cặp từ đã lưu
         self.load_pairs_from_file()
-        self.replace_callback = replace_callback
-
+        
+        # Thêm ít nhất 1 cặp từ mặc định nếu chưa có
+        if not self.replacement_pairs:
+            self.add_pair()
+    
+    def add_pair(self):
+        """Thêm một cặp từ thay thế mới"""
+        pair_widget = self.create_pair_widget()
+        self.pairs_layout.addWidget(pair_widget)
+        self.replacement_pairs.append(pair_widget)
+    
+    def create_pair_widget(self):
+        """Tạo widget cho một cặp từ thay thế"""
+        pair_widget = QWidget()
+        pair_layout = QHBoxLayout(pair_widget)
+        pair_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Label số thứ tự
+        index_label = QLabel(f"{len(self.replacement_pairs) + 1}.")
+        index_label.setMinimumWidth(30)
+        index_label.setStyleSheet("font-weight: bold; color: #666;")
+        pair_layout.addWidget(index_label)
+        
+        # Ô nhập từ cũ
+        old_edit = QLineEdit()
+        old_edit.setPlaceholderText("Từ cần thay thế...")
+        old_edit.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 4px;
+                background-color: #fff8dc;
+            }
+            QLineEdit:focus {
+                border-color: #ff9800;
+            }
+        """)
+        pair_layout.addWidget(old_edit)
+        
+        # Mũi tên
+        arrow_label = QLabel("→")
+        arrow_label.setStyleSheet("font-weight: bold; font-size: 16px; color: #666; margin: 0 10px;")
+        pair_layout.addWidget(arrow_label)
+        
+        # Ô nhập từ mới
+        new_edit = QLineEdit()
+        new_edit.setPlaceholderText("Từ thay thế...")
+        new_edit.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 4px;
+                background-color: #f0fff0;
+            }
+            QLineEdit:focus {
+                border-color: #4CAF50;
+            }
+        """)
+        pair_layout.addWidget(new_edit)
+        
+        # Nút xóa
+        delete_button = QPushButton("❌")
+        delete_button.setMaximumWidth(30)
+        delete_button.clicked.connect(lambda: self.remove_pair(pair_widget))
+        delete_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff4444;
+                color: white;
+                border: none;
+                border-radius: 15px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #cc0000;
+            }
+        """)
+        pair_layout.addWidget(delete_button)
+        
+        return pair_widget
+    
+    def remove_pair(self, pair_widget):
+        """Xóa một cặp từ thay thế"""
+        if len(self.replacement_pairs) > 1:  # Giữ lại ít nhất 1 cặp
+            self.pairs_layout.removeWidget(pair_widget)
+            self.replacement_pairs.remove(pair_widget)
+            pair_widget.deleteLater()
+            self.update_index_labels()
+        else:
+            QMessageBox.information(self, "Thông báo", "Phải có ít nhất 1 cặp từ thay thế!")
+    
+    def clear_all_pairs(self):
+        """Xóa tất cả các cặp từ thay thế"""
+        reply = QMessageBox.question(self, "Xác nhận", 
+                                   "Bạn có chắc muốn xóa tất cả các cặp từ thay thế?",
+                                   QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            # Xóa tất cả widget
+            for pair_widget in self.replacement_pairs:
+                self.pairs_layout.removeWidget(pair_widget)
+                pair_widget.deleteLater()
+            
+            self.replacement_pairs.clear()
+            
+            # Thêm lại 1 cặp mặc định
+            self.add_pair()
+    
+    def update_index_labels(self):
+        """Cập nhật số thứ tự cho các cặp từ"""
+        for i, pair_widget in enumerate(self.replacement_pairs):
+            index_label = pair_widget.layout().itemAt(0).widget()
+            index_label.setText(f"{i + 1}.")
+    
+    def get_replacement_pairs(self):
+        """Lấy danh sách các cặp từ thay thế"""
+        pairs = []
+        for pair_widget in self.replacement_pairs:
+            old_edit = pair_widget.layout().itemAt(1).widget()
+            new_edit = pair_widget.layout().itemAt(3).widget()
+            
+            old_text = old_edit.text().strip()
+            new_text = new_edit.text().strip()
+            
+            if old_text and new_text:  # Chỉ lấy các cặp có đủ cả 2 từ
+                pairs.append((old_text, new_text))
+        
+        return pairs
+    
     def load_pairs_from_file(self):
-        if os.path.exists(REPLACEMENT_FILE):
-            try:
+        """Tải các cặp từ từ file"""
+        try:
+            if os.path.exists(REPLACEMENT_FILE):
                 with open(REPLACEMENT_FILE, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
-                for i, line in enumerate(lines):
-                    if i >= 5:
-                        break
-                    parts = line.strip().split('=>', 1)
-                    if len(parts) == 2:
-                        self.pair_edits[i][0].setText(parts[0])
-                        self.pair_edits[i][1].setText(parts[1])
-            except Exception:
-                pass
-
+                
+                # Xóa các cặp hiện tại
+                for pair_widget in self.replacement_pairs:
+                    self.pairs_layout.removeWidget(pair_widget)
+                    pair_widget.deleteLater()
+                self.replacement_pairs.clear()
+                
+                # Thêm các cặp từ file
+                for line in lines:
+                    line = line.strip()
+                    if '|' in line:
+                        old_text, new_text = line.split('|', 1)
+                        pair_widget = self.create_pair_widget()
+                        self.pairs_layout.addWidget(pair_widget)
+                        self.replacement_pairs.append(pair_widget)
+                        
+                        # Điền dữ liệu
+                        old_edit = pair_widget.layout().itemAt(1).widget()
+                        new_edit = pair_widget.layout().itemAt(3).widget()
+                        old_edit.setText(old_text.strip())
+                        new_edit.setText(new_text.strip())
+                
+                self.update_index_labels()
+        except Exception as e:
+            print(f"Lỗi tải file replacements: {e}")
+    
     def save_pairs_to_file(self):
-        pairs = self.get_pairs()
+        """Lưu các cặp từ vào file"""
         try:
+            pairs = self.get_replacement_pairs()
             with open(REPLACEMENT_FILE, 'w', encoding='utf-8') as f:
-                for old, new in pairs:
-                    f.write(f"{old}=>{new}\n")
-        except Exception:
-            pass
-
-    def on_ok_clicked(self):
+                for old_text, new_text in pairs:
+                    f.write(f"{old_text}|{new_text}\n")
+        except Exception as e:
+            print(f"Lỗi lưu file replacements: {e}")
+    
+    def accept(self):
+        """Khi nhấn OK"""
+        pairs = self.get_replacement_pairs()
+        if not pairs:
+            QMessageBox.warning(self, "Cảnh báo", "Vui lòng nhập ít nhất 1 cặp từ thay thế!")
+            return
+        
+        # Lưu vào file
         self.save_pairs_to_file()
-        self.accept()
-
-    def on_replace_clicked(self):
-        self.save_pairs_to_file()
-        if self.replace_callback:
-            self.replace_callback(self.get_pairs())
-        self.accept()
-
-    def get_pairs(self):
-        pairs = []
-        for old_edit, new_edit in self.pair_edits:
-            old = old_edit.text().strip()
-            new = new_edit.text().strip()
-            if old:
-                pairs.append((old, new))
-        return pairs
+        super().accept()
 
     
 
