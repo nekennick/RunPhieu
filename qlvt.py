@@ -88,7 +88,8 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Xử lý phiếu xuất nhập kho hàng loạt | www.khoatran.io.vn")
+        self.current_version = "1.0.1"
+        self.setWindowTitle(f"Xử lý phiếu xuất nhập kho hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
         self.layout = QVBoxLayout()
@@ -208,14 +209,28 @@ class WordProcessorApp(QWidget):
                     
                     # Tìm ô chứa "VÕ THANH ĐIỀN" ở hàng cuối cùng
                     last_row = table.Rows.Count
+                    target_cell = None
                     for col in range(1, table.Columns.Count + 1):
                         cell_text = table.Cell(last_row, col).Range.Text.strip()
                         if "VÕ THANH ĐIỀN" in cell_text:
                             # Gộp ô chứa "VÕ THANH ĐIỀN" với ô bên phải
                             if col < table.Columns.Count:
                                 table.Cell(last_row, col).Merge(table.Cell(last_row, col + 1))
-                                table.Cell(last_row, col).Range.Text = ""  # Xoá "VÕ THANH ĐIỀN" sau khi đã gộp
+                                target_cell = table.Cell(last_row, col)  # Lưu ô đích
+                                target_cell.Range.Text = ""  # Xoá "VÕ THANH ĐIỀN" sau khi đã gộp
                             break
+                    
+                    # Tìm họ tên người nhận/giao hàng và điền vào ô đích
+                    if target_cell:
+                        print(f"[DEBUG] Đã tìm thấy ô đích để điền họ tên")
+                        ho_ten = self.find_ho_ten_nguoi_hang(doc)
+                        if ho_ten:
+                            target_cell.Range.Text = ho_ten
+                            print(f"[DEBUG] Đã điền họ tên: {ho_ten}")
+                        else:
+                            print(f"[DEBUG] Không tìm thấy họ tên người nhận/giao hàng")
+                    else:
+                        print(f"[DEBUG] Không tìm thấy ô đích (ô chứa VÕ THANH ĐIỀN)")
                 except:
                     pass
         except Exception as e:
@@ -283,6 +298,143 @@ class WordProcessorApp(QWidget):
 
     def on_print_finished(self, message):
         self.status_label.setText(message)
+
+    def find_ho_ten_nguoi_hang(self, doc):
+        """Tìm họ tên người nhận/giao hàng trong document"""
+        try:
+            print(f"[DEBUG] Bắt đầu tìm họ tên người nhận/giao hàng...")
+            # Tìm trong tất cả các bảng
+            for table_idx, table in enumerate(doc.Tables):
+                print(f"[DEBUG] Kiểm tra bảng {table_idx + 1}")
+                try:
+                    # Sử dụng Range.Cells để tránh lỗi với merged cells
+                    for cell_idx, cell in enumerate(table.Range.Cells):
+                        cell_text = cell.Range.Text.strip()
+                        if cell_text:  # Chỉ in cell có nội dung
+                            print(f"[DEBUG] Bảng{table_idx+1} - Cell {cell_idx+1}: '{cell_text}'")
+                        
+                        # Tìm "Họ và tên người nhận hàng:"
+                        if "Họ và tên người nhận hàng:" in cell_text:
+                            print(f"[DEBUG] Tìm thấy 'Họ và tên người nhận hàng:' trong cell {cell_idx+1}")
+                            # Trích xuất họ tên sau dấu ":"
+                            parts = cell_text.split("Họ và tên người nhận hàng:")
+                            if len(parts) > 1:
+                                ho_ten_part = parts[1].strip()
+                                # Cắt họ tên đến dấu xuống dòng hoặc ký tự đặc biệt
+                                ho_ten = self.extract_ho_ten(ho_ten_part)
+                                if ho_ten:
+                                    print(f"[DEBUG] Trích xuất được họ tên người nhận: '{ho_ten}'")
+                                    return ho_ten
+                                else:
+                                    print(f"[DEBUG] Họ tên người nhận trống")
+                            else:
+                                print(f"[DEBUG] Không thể trích xuất họ tên người nhận")
+                        # Tìm "Họ và tên người giao hàng:"
+                        elif "Họ và tên người giao hàng:" in cell_text:
+                            print(f"[DEBUG] Tìm thấy 'Họ và tên người giao hàng:' trong cell {cell_idx+1}")
+                            # Trích xuất họ tên sau dấu ":"
+                            parts = cell_text.split("Họ và tên người giao hàng:")
+                            if len(parts) > 1:
+                                ho_ten_part = parts[1].strip()
+                                # Cắt họ tên đến dấu xuống dòng hoặc ký tự đặc biệt
+                                ho_ten = self.extract_ho_ten(ho_ten_part)
+                                if ho_ten:
+                                    print(f"[DEBUG] Trích xuất được họ tên người giao: '{ho_ten}'")
+                                    return ho_ten
+                                else:
+                                    print(f"[DEBUG] Họ tên người giao trống")
+                            else:
+                                print(f"[DEBUG] Không thể trích xuất họ tên người giao")
+                except Exception as e:
+                    print(f"[DEBUG] Lỗi xử lý bảng {table_idx+1}: {e}")
+                    # Fallback: thử cách khác nếu có lỗi
+                    try:
+                        table_range = table.Range
+                        table_text = table_range.Text
+                        print(f"[DEBUG] Bảng{table_idx+1} - Toàn bộ nội dung: '{table_text}'")
+                        
+                        # Tìm trong toàn bộ text của bảng
+                        if "Họ và tên người nhận hàng:" in table_text:
+                            print(f"[DEBUG] Tìm thấy 'Họ và tên người nhận hàng:' trong bảng {table_idx+1}")
+                            parts = table_text.split("Họ và tên người nhận hàng:")
+                            if len(parts) > 1:
+                                ho_ten_part = parts[1].strip()
+                                ho_ten = self.extract_ho_ten(ho_ten_part)
+                                if ho_ten:
+                                    print(f"[DEBUG] Trích xuất được họ tên người nhận: '{ho_ten}'")
+                                    return ho_ten
+                        elif "Họ và tên người giao hàng:" in table_text:
+                            print(f"[DEBUG] Tìm thấy 'Họ và tên người giao hàng:' trong bảng {table_idx+1}")
+                            parts = table_text.split("Họ và tên người giao hàng:")
+                            if len(parts) > 1:
+                                ho_ten_part = parts[1].strip()
+                                ho_ten = self.extract_ho_ten(ho_ten_part)
+                                if ho_ten:
+                                    print(f"[DEBUG] Trích xuất được họ tên người giao: '{ho_ten}'")
+                                    return ho_ten
+                    except Exception as e2:
+                        print(f"[DEBUG] Fallback cũng thất bại cho bảng {table_idx+1}: {e2}")
+            
+            print(f"[DEBUG] Không tìm thấy trong bảng, kiểm tra paragraphs...")
+            # Tìm trong paragraphs nếu không tìm thấy trong bảng
+            for para_idx, para in enumerate(doc.Paragraphs):
+                para_text = para.Range.Text.strip()
+                if para_text:  # Chỉ in paragraph có nội dung
+                    print(f"[DEBUG] Paragraph {para_idx + 1}: '{para_text}'")
+                
+                if "Họ và tên người nhận hàng:" in para_text:
+                    print(f"[DEBUG] Tìm thấy 'Họ và tên người nhận hàng:' trong paragraph {para_idx + 1}")
+                    parts = para_text.split("Họ và tên người nhận hàng:")
+                    if len(parts) > 1:
+                        ho_ten_part = parts[1].strip()
+                        ho_ten = self.extract_ho_ten(ho_ten_part)
+                        if ho_ten:
+                            print(f"[DEBUG] Trích xuất được họ tên người nhận từ paragraph: '{ho_ten}'")
+                            return ho_ten
+                elif "Họ và tên người giao hàng:" in para_text:
+                    print(f"[DEBUG] Tìm thấy 'Họ và tên người giao hàng:' trong paragraph {para_idx + 1}")
+                    parts = para_text.split("Họ và tên người giao hàng:")
+                    if len(parts) > 1:
+                        ho_ten_part = parts[1].strip()
+                        ho_ten = self.extract_ho_ten(ho_ten_part)
+                        if ho_ten:
+                            print(f"[DEBUG] Trích xuất được họ tên người giao từ paragraph: '{ho_ten}'")
+                            return ho_ten
+            
+            print(f"[DEBUG] Không tìm thấy họ tên người nhận/giao hàng trong toàn bộ document")
+            return None
+        except Exception as e:
+            print(f"[DEBUG] Lỗi tìm họ tên: {e}")
+            return None
+
+    def extract_ho_ten(self, text):
+        """Trích xuất họ tên từ text, loại bỏ các thông tin khác"""
+        try:
+            # Loại bỏ các thông tin phía sau họ tên
+            # Cắt đến dấu xuống dòng đầu tiên
+            if '\r' in text:
+                text = text.split('\r')[0].strip()
+            elif '\n' in text:
+                text = text.split('\n')[0].strip()
+            
+            # Loại bỏ các thông tin như "Đơn vị nhập:", "Đơn vị xuất:", v.v.
+            # Tìm các từ khóa có thể xuất hiện sau họ tên
+            keywords_to_remove = [
+                "Đơn vị nhập:"
+            ]
+            
+            for keyword in keywords_to_remove:
+                if keyword in text:
+                    text = text.split(keyword)[0].strip()
+                    break
+            
+            # Loại bỏ các ký tự đặc biệt cuối
+            text = text.rstrip('.,;:!?')
+            
+            return text if text else None
+        except Exception as e:
+            print(f"[DEBUG] Lỗi trích xuất họ tên: {e}")
+            return None
 
     
             
