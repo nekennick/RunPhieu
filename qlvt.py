@@ -204,10 +204,18 @@ class WordProcessorApp(QWidget):
                 # ✅ Tiếp tục xử lý nội dung sau khi thêm dòng
                 try:
                     table.Cell(1, 3).Range.Text = ""  # Xoá "NGƯỜI LẬP PHIẾU"
-                    # KHÔNG XÓA Ô "VÕ THANH ĐIỀN" nữa để tránh bảng bị tràn
                     table.Cell(1, 3).Merge(table.Cell(1, 4))  # Gộp ô (1,3) và (1,4)
-                    table.Cell(5, 3).Merge(table.Cell(5, 4))  # Gộp ô (5,3) và (5,4)
-                    table.Cell(5, 3).Range.Text = ""  # Xoá "VÕ THANH ĐIỀN"
+                    
+                    # Tìm ô chứa "VÕ THANH ĐIỀN" ở hàng cuối cùng
+                    last_row = table.Rows.Count
+                    for col in range(1, table.Columns.Count + 1):
+                        cell_text = table.Cell(last_row, col).Range.Text.strip()
+                        if "VÕ THANH ĐIỀN" in cell_text:
+                            # Gộp ô chứa "VÕ THANH ĐIỀN" với ô bên phải
+                            if col < table.Columns.Count:
+                                table.Cell(last_row, col).Merge(table.Cell(last_row, col + 1))
+                                table.Cell(last_row, col).Range.Text = ""  # Xoá "VÕ THANH ĐIỀN" sau khi đã gộp
+                            break
                 except:
                     pass
         except Exception as e:
