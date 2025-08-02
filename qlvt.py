@@ -169,7 +169,7 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.9"
+        self.current_version = "1.0.10"
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
@@ -675,14 +675,15 @@ class WordProcessorApp(QWidget):
         if "thành công" in message:
             # Hiển thị thông báo và đóng ứng dụng
             QMessageBox.information(self, "Cập nhật", 
-                f"{message}\n\nỨng dụng sẽ đóng để hoàn tất cài đặt.")
+                f"{message}\n\nỨng dụng sẽ đóng để hoàn tất cài đặt.\n\nNếu ứng dụng không khởi động lại tự động, vui lòng chạy lại file .exe.")
             
             # Đóng ứng dụng ngay lập tức để batch script có thể thay thế file
             print("[UPDATE] Đóng ứng dụng để hoàn tất cài đặt...")
             QApplication.quit()
         else:
-            # Hiển thị lỗi
-            QMessageBox.warning(self, "Lỗi cập nhật", message)
+            # Hiển thị lỗi chi tiết hơn
+            error_message = f"Lỗi cập nhật:\n{message}\n\nVui lòng thử lại hoặc liên hệ hỗ trợ."
+            QMessageBox.critical(self, "Lỗi cập nhật", error_message)
 
 
 
@@ -1192,52 +1193,100 @@ class AutoUpdater:
             batch_content = f'''@echo off
 setlocal enabledelayedexpansion
 
+echo [UPDATE] ========================================
 echo [UPDATE] Bắt đầu cài đặt bản cập nhật...
+echo [UPDATE] Thời gian: %date% %time%
+echo [UPDATE] ========================================
+
+echo [UPDATE] Kiểm tra file nguồn...
+if not exist "{new_exe_path}" (
+    echo [UPDATE] LỖI: Không tìm thấy file nguồn {new_exe_path}
+    pause
+    exit /b 1
+)
+
+echo [UPDATE] Kiểm tra file đích...
+if not exist "{current_exe_path}" (
+    echo [UPDATE] LỖI: Không tìm thấy file đích {current_exe_path}
+    pause
+    exit /b 1
+)
+
 echo [UPDATE] Đang đóng ứng dụng hiện tại...
+echo [UPDATE] Tên process: {os.path.basename(current_exe_path)}
 
-REM Đợi một chút để ứng dụng đóng hoàn toàn
-timeout /t 3 /nobreak >nul
+REM Đợi ứng dụng đóng hoàn toàn
+timeout /t 5 /nobreak >nul
 
-REM Kiểm tra xem file có bị lock không
+REM Kiểm tra xem process có còn chạy không
 :check_lock
+echo [UPDATE] Kiểm tra process...
 tasklist /FI "IMAGENAME eq {os.path.basename(current_exe_path)}" 2>NUL | find /I /N "{os.path.basename(current_exe_path)}">NUL
 if "%ERRORLEVEL%"=="0" (
     echo [UPDATE] Ứng dụng vẫn đang chạy, đợi thêm...
-    timeout /t 2 /nobreak >nul
+    timeout /t 3 /nobreak >nul
     goto check_lock
 )
 
-echo [UPDATE] Ứng dụng đã đóng, bắt đầu cài đặt...
+echo [UPDATE] Ứng dụng đã đóng hoàn toàn!
+echo [UPDATE] Bắt đầu cài đặt...
+
+REM Tạo backup trước khi cài đặt
+echo [UPDATE] Tạo backup...
+copy "{current_exe_path}" "{current_exe_path}.backup" /Y >nul 2>&1
 
 REM Thử copy với retry
 set retry_count=0
 :copy_retry
+echo [UPDATE] Thử copy lần !retry_count!...
 copy "{new_exe_path}" "{current_exe_path}" /Y
 if %errorlevel% equ 0 (
-    echo [UPDATE] Cài đặt thành công!
-    echo [UPDATE] Khởi động lại ứng dụng...
+    echo [UPDATE] ========================================
+    echo [UPDATE] CÀI ĐẶT THÀNH CÔNG!
+    echo [UPDATE] ========================================
     
-    REM Đợi một chút trước khi khởi động lại
-    timeout /t 1 /nobreak >nul
+    echo [UPDATE] Kiểm tra file mới...
+    if exist "{current_exe_path}" (
+        echo [UPDATE] File mới đã được tạo thành công
+    ) else (
+        echo [UPDATE] LỖI: File mới không tồn tại
+        pause
+        exit /b 1
+    )
+    
+    echo [UPDATE] Khởi động lại ứng dụng...
+    timeout /t 2 /nobreak >nul
     
     REM Khởi động ứng dụng mới
     start "" "{current_exe_path}"
     
-    REM Dọn dẹp file tạm
+    echo [UPDATE] Dọn dẹp file tạm...
     del "{new_exe_path}" 2>nul
+    del "{current_exe_path}.backup" 2>nul
     del "%~f0" 2>nul
     
-    echo [UPDATE] Hoàn tất cài đặt!
+    echo [UPDATE] ========================================
+    echo [UPDATE] HOÀN TẤT CÀI ĐẶT!
+    echo [UPDATE] ========================================
+    timeout /t 3 /nobreak >nul
     exit /b 0
 ) else (
     set /a retry_count+=1
+    echo [UPDATE] Lỗi copy (lần !retry_count!), errorlevel: %errorlevel%
     if !retry_count! lss 5 (
-        echo [UPDATE] Lỗi copy, thử lại lần !retry_count!...
-        timeout /t 2 /nobreak >nul
+        echo [UPDATE] Thử lại sau 3 giây...
+        timeout /t 3 /nobreak >nul
         goto copy_retry
     ) else (
-        echo [UPDATE] Lỗi cài đặt sau 5 lần thử!
-        echo [UPDATE] Vui lòng thử cài đặt thủ công.
+        echo [UPDATE] ========================================
+        echo [UPDATE] LỖI CÀI ĐẶT SAU 5 LẦN THỬ!
+        echo [UPDATE] ========================================
+        echo [UPDATE] Chi tiết lỗi:
+        echo [UPDATE] - File nguồn: {new_exe_path}
+        echo [UPDATE] - File đích: {current_exe_path}
+        echo [UPDATE] - Error level cuối: %errorlevel%
+        echo [UPDATE] 
+        echo [UPDATE] Vui lòng thử cài đặt thủ công hoặc liên hệ hỗ trợ.
         pause
         exit /b 1
     )
@@ -1251,6 +1300,8 @@ if %errorlevel% equ 0 (
             
             # Chạy batch script với elevated privileges nếu cần
             try:
+                print(f"[UPDATE] Chạy batch script với timeout 120 giây...")
+                
                 # Kiểm tra quyền admin
                 if not is_admin():
                     print("[UPDATE] Không có quyền admin, thử chạy với elevated privileges...")
@@ -1261,21 +1312,30 @@ if %errorlevel% equ 0 (
                                           shell=True, 
                                           capture_output=True, 
                                           text=True, 
-                                          timeout=60)
+                                          timeout=120)
                 else:
                     # Chạy bình thường nếu đã có quyền admin
                     result = subprocess.run(['cmd', '/c', batch_path], 
                                           shell=True, 
                                           capture_output=True, 
                                           text=True, 
-                                          timeout=60)
+                                          timeout=120)
                 
+                print(f"[UPDATE] Batch script return code: {result.returncode}")
                 print(f"[UPDATE] Batch script output: {result.stdout}")
                 if result.stderr:
                     print(f"[UPDATE] Batch script errors: {result.stderr}")
-                return result.returncode == 0
+                
+                # Kiểm tra kết quả chi tiết
+                if result.returncode == 0:
+                    print("[UPDATE] Batch script hoàn thành thành công")
+                    return True
+                else:
+                    print(f"[UPDATE] Batch script thất bại với return code: {result.returncode}")
+                    return False
+                    
             except subprocess.TimeoutExpired:
-                print(f"[UPDATE] Batch script timeout")
+                print(f"[UPDATE] Batch script timeout sau 120 giây")
                 return False
             except Exception as e:
                 print(f"[UPDATE] Lỗi chạy batch script: {e}")
