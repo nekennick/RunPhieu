@@ -93,7 +93,7 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.2"
+        self.current_version = "1.0.3"
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
@@ -141,6 +141,11 @@ class WordProcessorApp(QWidget):
         self.test_update_button = QPushButton("🧪 Test Auto-Update")
         self.test_update_button.clicked.connect(self.test_auto_update)
         button_layout.addWidget(self.test_update_button)
+
+        # Thêm nút Version Info
+        self.version_info_button = QPushButton("📊 Version Info")
+        self.version_info_button.clicked.connect(self.show_version_info)
+        button_layout.addWidget(self.version_info_button)
 
         self.layout.addLayout(button_layout)
         self.setLayout(self.layout)
@@ -531,6 +536,16 @@ class WordProcessorApp(QWidget):
                 QMessageBox.information(self, "Thông báo", "Không có phiên bản mới để cập nhật.")
         except Exception as e:
             QMessageBox.critical(self, "Lỗi", f"Lỗi khi kiểm tra cập nhật: {e}")
+
+    def show_version_info(self):
+        """Hiển thị thông tin phiên bản"""
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Thông tin phiên bản")
+        msg.setText(f"Phiên bản hiện tại: v{self.current_version}")
+        msg.setInformativeText("Bạn đang sử dụng phiên bản này để xử lý phiếu hàng loạt.")
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
 
 
 
