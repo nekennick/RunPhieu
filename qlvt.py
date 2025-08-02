@@ -16,6 +16,74 @@ import os
 
 REPLACEMENT_FILE = "replacements.txt"
 
+# Thêm class ActivationManager
+class ActivationManager:
+    def __init__(self):
+        # Gist ID sẽ được tạo và cập nhật sau
+        self.gist_id = "0a9de72209b228810b5feee5af13005e"  # Sẽ thay thế bằng Gist ID thực
+        self.api_url = f"https://api.github.com/gists/{self.gist_id}"
+    
+    def check_activation_status(self):
+        """Kiểm tra trạng thái activation từ GitHub Gist"""
+        try:
+            print(f"[ACTIVATION] Đang kiểm tra trạng thái activation...")
+            response = requests.get(self.api_url, timeout=10)
+            
+            if response.status_code == 200:
+                gist_data = response.json()
+                files = gist_data.get('files', {})
+                
+                # Tìm file activation_status.json
+                activation_file = None
+                for filename, file_data in files.items():
+                    if filename == 'activation_status.json':
+                        activation_file = file_data
+                        break
+                
+                if activation_file:
+                    content = activation_file.get('content', '{}')
+                    try:
+                        status_data = json.loads(content)
+                        print(f"[ACTIVATION] Trạng thái: {status_data}")
+                        return status_data
+                    except json.JSONDecodeError as e:
+                        print(f"[ACTIVATION] Lỗi parse JSON: {e}")
+                        return self._get_deactivated_status("Lỗi định dạng dữ liệu từ server")
+                else:
+                    print(f"[ACTIVATION] Không tìm thấy file activation_status.json")
+                    return self._get_deactivated_status("Không tìm thấy thông tin kích hoạt trên server")
+            else:
+                print(f"[ACTIVATION] Lỗi API: {response.status_code}")
+                return self._get_deactivated_status(f"Lỗi kết nối đến server (HTTP {response.status_code})")
+                
+        except requests.exceptions.Timeout:
+            print(f"[ACTIVATION] Timeout khi kiểm tra activation")
+            return self._get_deactivated_status("Không thể kết nối đến server (timeout)")
+        except requests.exceptions.ConnectionError:
+            print(f"[ACTIVATION] Lỗi kết nối khi kiểm tra activation")
+            return self._get_deactivated_status("Không có kết nối mạng đến server")
+        except Exception as e:
+            print(f"[ACTIVATION] Lỗi kiểm tra activation: {e}")
+            return self._get_deactivated_status(f"Lỗi không xác định: {str(e)}")
+    
+    def _get_default_status(self):
+        """Trả về trạng thái mặc định (activated) - chỉ dùng khi server trả về activated=True"""
+        return {
+            "activated": True,
+            "expiry_date": "2025-12-31",
+            "message": "Ứng dụng đang hoạt động bình thường",
+            "last_updated": "2024-01-15T10:30:00Z"
+        }
+    
+    def _get_deactivated_status(self, message):
+        """Trả về trạng thái deactivated cho các lỗi kết nối"""
+        return {
+            "activated": False,
+            "expiry_date": None,
+            "message": message,
+            "last_updated": "2024-01-15T10:30:00Z"
+        }
+
 class ReplaceWorker(QThread):
     finished = pyqtSignal(str)
     def __init__(self, doc_names, replacements, parent=None):
@@ -97,6 +165,13 @@ class WordProcessorApp(QWidget):
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
+        # Khởi tạo ActivationManager
+        self.activation_manager = ActivationManager()
+        
+        # Kiểm tra activation trước khi khởi tạo UI
+        if not self._check_activation():
+            return  # Thoát nếu không được kích hoạt
+
         # Khởi tạo AutoUpdater
         self.updater = AutoUpdater("nekennick/RunPhieu")
         
@@ -137,11 +212,89 @@ class WordProcessorApp(QWidget):
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
 
+    
+       
+
         self.layout.addLayout(button_layout)
         self.setLayout(self.layout)
 
         # 🔄 GỌI NGAY khi khởi động để tự động tải danh sách tài liệu đang mở
         self.load_open_documents()
+
+    def _check_activation(self):
+        """Kiểm tra trạng thái activation khi khởi động"""
+        try:
+            status = self.activation_manager.check_activation_status()
+            
+            if not status.get('activated', True):
+                # Hiển thị thông báo deactivated
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setWindowTitle("Lỗi")
+                msg.setText("❌ Không có kết nối đến server")
+                msg.setInformativeText(status.get('message', 'Không có thông tin chi tiết'))
+                
+                # Thêm thông tin expiry date nếu có
+                expiry_date = status.get('expiry_date')
+                if expiry_date:
+                    msg.setDetailedText(f"Ngày hết hạn: {expiry_date}\n\nLiên hệ admin để được hỗ trợ.")
+                
+                msg.setStandardButtons(QMessageBox.Ok)
+                msg.exec_()
+                
+                # Thoát ứng dụng
+                QApplication.quit()
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"[ACTIVATION] Lỗi kiểm tra activation: {e}")
+            # Nếu có lỗi, cũng thoát ứng dụng để tránh bypass
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle("Lỗi")
+            msg.setText("❌ Không thể kiểm tra trạng thái kích hoạt")
+            msg.setInformativeText("Ứng dụng sẽ thoát để đảm bảo an toàn.")
+            msg.setDetailedText(f"Chi tiết lỗi: {str(e)}")
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
+            
+            QApplication.quit()
+            return False
+
+    def show_activation_status(self):
+        """Hiển thị thông tin trạng thái activation"""
+        try:
+            status = self.activation_manager.check_activation_status()
+            
+            msg = QMessageBox()
+            if status.get('activated', True):
+                msg.setIcon(QMessageBox.Information)
+                msg.setWindowTitle("Trạng thái")
+                msg.setText("✅ Ứng dụng đang được kích hoạt")
+            else:
+                msg.setIcon(QMessageBox.Warning)
+                msg.setWindowTitle("Trạng thái")
+                msg.setText("❌ Lỗi kết nối đến server")
+            
+            # Thông tin chi tiết
+            details = []
+            if 'expiry_date' in status:
+                details.append(f"Ngày hết hạn: {status['expiry_date']}")
+            if 'message' in status:
+                details.append(f"Thông báo: {status['message']}")
+            if 'last_updated' in status:
+                details.append(f"Cập nhật lần cuối: {status['last_updated']}")
+            
+            if details:
+                msg.setInformativeText('\n'.join(details))
+            
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Lỗi", f"Không thể kiểm tra trạng thái activation: {e}")
 
     def load_open_documents(self):
         self.file_list.clear()
