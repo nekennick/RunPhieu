@@ -1,13 +1,17 @@
 import sys
 import pythoncom
 import win32com.client
+import requests
+import subprocess
+import ctypes
+import json
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
     QLineEdit, QFormLayout, QDialog, QDialogButtonBox, QFileDialog,
-    QScrollArea, QMessageBox
+    QScrollArea, QMessageBox, QProgressBar
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import os
 
 REPLACEMENT_FILE = "replacements.txt"
@@ -89,9 +93,17 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.0"
+        self.current_version = "1.0.1"
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
+
+        # Khởi tạo AutoUpdater
+        self.updater = AutoUpdater("nekennick/RunPhieu")
+        
+        # Auto-check updates sau 3 giây
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.auto_check_updates)
+        self.update_timer.start(3000)  # 3 giây
 
         self.layout = QVBoxLayout()
 
@@ -436,6 +448,73 @@ class WordProcessorApp(QWidget):
         except Exception as e:
             print(f"[DEBUG] Lỗi trích xuất họ tên: {e}")
             return None
+
+    def auto_check_updates(self):
+        """Tự động kiểm tra cập nhật khi khởi động"""
+        self.update_timer.stop()  # Chỉ check 1 lần
+        try:
+            has_update, release_info = self.updater.check_for_updates(self.current_version)
+            if has_update:
+                self.show_update_dialog(release_info)
+        except Exception as e:
+            print(f"[UPDATE] Lỗi auto-check: {e}")
+    
+    def show_update_dialog(self, release_info):
+        """Hiển thị dialog xác nhận cập nhật"""
+        latest_version = release_info['tag_name'].lstrip('v')
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Cập nhật mới")
+        msg.setText(f"Có phiên bản mới: v{latest_version}")
+        msg.setInformativeText("Bạn có muốn cập nhật ngay bây giờ không?")
+        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setDefaultButton(QMessageBox.Yes)
+        
+        if msg.exec_() == QMessageBox.Yes:
+            self.perform_update(release_info)
+    
+    def perform_update(self, release_info):
+        """Thực hiện cập nhật"""
+        download_url = self.updater.get_download_url(release_info)
+        if download_url:
+            # Hiển thị progress dialog
+            self.progress_dialog = QDialog(self)
+            self.progress_dialog.setWindowTitle("Đang cập nhật...")
+            self.progress_dialog.setFixedSize(400, 150)
+            
+            layout = QVBoxLayout()
+            
+            self.progress_label = QLabel("Đang tải xuống cập nhật...")
+            layout.addWidget(self.progress_label)
+            
+            self.progress_bar = QProgressBar()
+            layout.addWidget(self.progress_bar)
+            
+            self.progress_dialog.setLayout(layout)
+            self.progress_dialog.show()
+            
+            # Bắt đầu update worker
+            self.update_worker = UpdateWorker(self.updater, download_url, self)
+            self.update_worker.progress.connect(self.update_progress)
+            self.update_worker.finished.connect(self.on_update_finished)
+            self.update_worker.start()
+        else:
+            QMessageBox.warning(self, "Lỗi", "Không thể tải xuống cập nhật.")
+    
+    def update_progress(self, value):
+        """Cập nhật progress bar"""
+        self.progress_bar.setValue(value)
+        if value == 100:
+            self.progress_label.setText("Đang cài đặt cập nhật...")
+    
+    def on_update_finished(self, message):
+        """Xử lý khi update hoàn tất"""
+        self.progress_dialog.close()
+        QMessageBox.information(self, "Cập nhật", message)
+        
+        # Nếu update thành công, thoát ứng dụng
+        if "thành công" in message:
+            QApplication.quit()
 
 
 
@@ -836,6 +915,169 @@ class PrintWorker(QThread):
             self.finished.emit(f"Lỗi in file: {e}")
         finally:
             pythoncom.CoUninitialize()
+
+
+class AutoUpdater:
+    def __init__(self, github_repo):
+        self.github_repo = github_repo
+        self.api_url = f"https://api.github.com/repos/{github_repo}/releases/latest"
+        self.temp_dir = os.path.join(os.environ.get('TEMP'), 'QLVT_Update')
+        
+        # Tạo thư mục temp nếu chưa có
+        if not os.path.exists(self.temp_dir):
+            os.makedirs(self.temp_dir)
+    
+    def check_for_updates(self, current_version):
+        """Kiểm tra phiên bản mới từ GitHub"""
+        try:
+            print(f"[UPDATE] Đang kiểm tra cập nhật từ {self.github_repo}")
+            response = requests.get(self.api_url, timeout=10)
+            if response.status_code == 200:
+                release_info = response.json()
+                latest_version = release_info['tag_name'].lstrip('v')
+                print(f"[UPDATE] Phiên bản hiện tại: {current_version}")
+                print(f"[UPDATE] Phiên bản mới nhất: {latest_version}")
+                
+                if self.compare_versions(current_version, latest_version):
+                    print(f"[UPDATE] Có phiên bản mới: {latest_version}")
+                    return True, release_info
+                else:
+                    print(f"[UPDATE] Đã là phiên bản mới nhất")
+                    return False, None
+            else:
+                print(f"[UPDATE] Lỗi API: {response.status_code}")
+                return False, None
+        except requests.exceptions.Timeout:
+            print(f"[UPDATE] Timeout khi kiểm tra cập nhật")
+            return False, None
+        except Exception as e:
+            print(f"[UPDATE] Lỗi kiểm tra cập nhật: {e}")
+            return False, None
+    
+    def compare_versions(self, current, latest):
+        """So sánh phiên bản theo semantic versioning"""
+        try:
+            current_parts = [int(x) for x in current.split('.')]
+            latest_parts = [int(x) for x in latest.split('.')]
+            
+            # Đảm bảo cùng độ dài
+            while len(current_parts) < len(latest_parts):
+                current_parts.append(0)
+            while len(latest_parts) < len(current_parts):
+                latest_parts.append(0)
+                
+            return latest_parts > current_parts
+        except Exception as e:
+            print(f"[UPDATE] Lỗi so sánh version: {e}")
+            return False
+    
+    def get_download_url(self, release_info):
+        """Lấy URL download file .exe"""
+        try:
+            for asset in release_info.get('assets', []):
+                if asset['name'].endswith('.exe') and 'QLVT_Processor' in asset['name']:
+                    print(f"[UPDATE] Tìm thấy file: {asset['name']}")
+                    return asset['browser_download_url']
+            print(f"[UPDATE] Không tìm thấy file .exe trong release")
+            return None
+        except Exception as e:
+            print(f"[UPDATE] Lỗi lấy download URL: {e}")
+            return None
+    
+    def download_update(self, download_url, progress_callback=None):
+        """Tải xuống file cập nhật với progress"""
+        try:
+            print(f"[UPDATE] Bắt đầu tải xuống: {download_url}")
+            response = requests.get(download_url, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            # Lấy tên file từ URL
+            filename = download_url.split('/')[-1]
+            temp_path = os.path.join(self.temp_dir, filename)
+            
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            
+            with open(temp_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback and total_size > 0:
+                            progress = int((downloaded / total_size) * 100)
+                            progress_callback(progress)
+            
+            print(f"[UPDATE] Tải xuống hoàn tất: {temp_path}")
+            return temp_path
+        except Exception as e:
+            print(f"[UPDATE] Lỗi tải xuống: {e}")
+            return None
+    
+    def install_update(self, new_exe_path):
+        """Cài đặt bản cập nhật"""
+        try:
+            current_exe_path = sys.argv[0]
+            print(f"[UPDATE] Cài đặt từ: {new_exe_path}")
+            print(f"[UPDATE] Cài đặt đến: {current_exe_path}")
+            
+            # Tạo batch script để thay thế file
+            batch_content = f'''@echo off
+echo Đang cài đặt bản cập nhật...
+timeout /t 2 /nobreak >nul
+copy "{new_exe_path}" "{current_exe_path}" /Y
+if %errorlevel% equ 0 (
+    echo Cài đặt thành công!
+    echo Khởi động lại ứng dụng...
+    start "" "{current_exe_path}"
+    del "{new_exe_path}"
+    del "%~f0"
+    exit
+) else (
+    echo Lỗi cài đặt!
+    pause
+    exit /b 1
+)'''
+            
+            batch_path = os.path.join(self.temp_dir, 'update_qlvt.bat')
+            with open(batch_path, 'w', encoding='utf-8') as f:
+                f.write(batch_content)
+            
+            print(f"[UPDATE] Chạy batch script: {batch_path}")
+            # Chạy batch script
+            subprocess.run(['cmd', '/c', batch_path], shell=True)
+            return True
+        except Exception as e:
+            print(f"[UPDATE] Lỗi cài đặt: {e}")
+            return False
+
+
+class UpdateWorker(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    
+    def __init__(self, updater, download_url, parent=None):
+        super().__init__(parent)
+        self.updater = updater
+        self.download_url = download_url
+    
+    def run(self):
+        try:
+            # Tải xuống với progress
+            new_exe_path = self.updater.download_update(
+                self.download_url, 
+                self.progress.emit
+            )
+            
+            if new_exe_path:
+                # Cài đặt
+                if self.updater.install_update(new_exe_path):
+                    self.finished.emit("✅ Cập nhật thành công! Ứng dụng sẽ khởi động lại.")
+                else:
+                    self.finished.emit("❌ Lỗi cài đặt cập nhật.")
+            else:
+                self.finished.emit("❌ Lỗi tải xuống cập nhật.")
+        except Exception as e:
+            self.finished.emit(f"❌ Lỗi cập nhật: {e}")
 
 
 if __name__ == "__main__":
