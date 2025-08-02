@@ -5,6 +5,7 @@ import requests
 import subprocess
 import ctypes
 import json
+import os
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
@@ -15,6 +16,13 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import os
 
 REPLACEMENT_FILE = "replacements.txt"
+
+def is_admin():
+    """Kiểm tra xem ứng dụng có chạy với quyền admin không"""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
 
 # Thêm class ActivationManager
 class ActivationManager:
@@ -161,7 +169,7 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.7"
+        self.current_version = "1.0.8"
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
@@ -663,11 +671,18 @@ class WordProcessorApp(QWidget):
     def on_update_finished(self, message):
         """Xử lý khi update hoàn tất"""
         self.progress_dialog.close()
-        QMessageBox.information(self, "Cập nhật", message)
         
-        # Nếu update thành công, thoát ứng dụng
         if "thành công" in message:
+            # Hiển thị thông báo và đóng ứng dụng
+            QMessageBox.information(self, "Cập nhật", 
+                f"{message}\n\nỨng dụng sẽ đóng để hoàn tất cài đặt.")
+            
+            # Đóng ứng dụng ngay lập tức để batch script có thể thay thế file
+            print("[UPDATE] Đóng ứng dụng để hoàn tất cài đặt...")
             QApplication.quit()
+        else:
+            # Hiển thị lỗi
+            QMessageBox.warning(self, "Lỗi cập nhật", message)
 
 
 
@@ -1173,22 +1188,59 @@ class AutoUpdater:
             print(f"[UPDATE] Cài đặt từ: {new_exe_path}")
             print(f"[UPDATE] Cài đặt đến: {current_exe_path}")
             
-            # Tạo batch script để thay thế file
+            # Tạo batch script để thay thế file với cải tiến
             batch_content = f'''@echo off
-echo Đang cài đặt bản cập nhật...
-timeout /t 2 /nobreak >nul
+setlocal enabledelayedexpansion
+
+echo [UPDATE] Bắt đầu cài đặt bản cập nhật...
+echo [UPDATE] Đang đóng ứng dụng hiện tại...
+
+REM Đợi một chút để ứng dụng đóng hoàn toàn
+timeout /t 3 /nobreak >nul
+
+REM Kiểm tra xem file có bị lock không
+:check_lock
+tasklist /FI "IMAGENAME eq {os.path.basename(current_exe_path)}" 2>NUL | find /I /N "{os.path.basename(current_exe_path)}">NUL
+if "%ERRORLEVEL%"=="0" (
+    echo [UPDATE] Ứng dụng vẫn đang chạy, đợi thêm...
+    timeout /t 2 /nobreak >nul
+    goto check_lock
+)
+
+echo [UPDATE] Ứng dụng đã đóng, bắt đầu cài đặt...
+
+REM Thử copy với retry
+set retry_count=0
+:copy_retry
 copy "{new_exe_path}" "{current_exe_path}" /Y
 if %errorlevel% equ 0 (
-    echo Cài đặt thành công!
-    echo Khởi động lại ứng dụng...
+    echo [UPDATE] Cài đặt thành công!
+    echo [UPDATE] Khởi động lại ứng dụng...
+    
+    REM Đợi một chút trước khi khởi động lại
+    timeout /t 1 /nobreak >nul
+    
+    REM Khởi động ứng dụng mới
     start "" "{current_exe_path}"
-    del "{new_exe_path}"
-    del "%~f0"
-    exit
+    
+    REM Dọn dẹp file tạm
+    del "{new_exe_path}" 2>nul
+    del "%~f0" 2>nul
+    
+    echo [UPDATE] Hoàn tất cài đặt!
+    exit /b 0
 ) else (
-    echo Lỗi cài đặt!
-    pause
-    exit /b 1
+    set /a retry_count+=1
+    if !retry_count! lss 5 (
+        echo [UPDATE] Lỗi copy, thử lại lần !retry_count!...
+        timeout /t 2 /nobreak >nul
+        goto copy_retry
+    ) else (
+        echo [UPDATE] Lỗi cài đặt sau 5 lần thử!
+        echo [UPDATE] Vui lòng thử cài đặt thủ công.
+        pause
+        exit /b 1
+    )
 )'''
             
             batch_path = os.path.join(self.temp_dir, 'update_qlvt.bat')
@@ -1196,9 +1248,39 @@ if %errorlevel% equ 0 (
                 f.write(batch_content)
             
             print(f"[UPDATE] Chạy batch script: {batch_path}")
-            # Chạy batch script
-            subprocess.run(['cmd', '/c', batch_path], shell=True)
-            return True
+            
+            # Chạy batch script với elevated privileges nếu cần
+            try:
+                # Kiểm tra quyền admin
+                if not is_admin():
+                    print("[UPDATE] Không có quyền admin, thử chạy với elevated privileges...")
+                    # Thử chạy với elevated privileges
+                    result = subprocess.run(['powershell', 'Start-Process', 'cmd', 
+                                           '-ArgumentList', f'/c "{batch_path}"',
+                                           '-Verb', 'RunAs', '-Wait'],
+                                          shell=True, 
+                                          capture_output=True, 
+                                          text=True, 
+                                          timeout=60)
+                else:
+                    # Chạy bình thường nếu đã có quyền admin
+                    result = subprocess.run(['cmd', '/c', batch_path], 
+                                          shell=True, 
+                                          capture_output=True, 
+                                          text=True, 
+                                          timeout=60)
+                
+                print(f"[UPDATE] Batch script output: {result.stdout}")
+                if result.stderr:
+                    print(f"[UPDATE] Batch script errors: {result.stderr}")
+                return result.returncode == 0
+            except subprocess.TimeoutExpired:
+                print(f"[UPDATE] Batch script timeout")
+                return False
+            except Exception as e:
+                print(f"[UPDATE] Lỗi chạy batch script: {e}")
+                return False
+                
         except Exception as e:
             print(f"[UPDATE] Lỗi cài đặt: {e}")
             return False
