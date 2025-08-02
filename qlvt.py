@@ -93,7 +93,7 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.1"
+        self.current_version = "1.0.2"
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
@@ -136,6 +136,11 @@ class WordProcessorApp(QWidget):
         self.save_as_button = QPushButton("Lưu tất cả file")
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
+
+        # Thêm nút Test Auto-Update
+        self.test_update_button = QPushButton("🧪 Test Auto-Update")
+        self.test_update_button.clicked.connect(self.test_auto_update)
+        button_layout.addWidget(self.test_update_button)
 
         self.layout.addLayout(button_layout)
         self.setLayout(self.layout)
@@ -515,6 +520,17 @@ class WordProcessorApp(QWidget):
         # Nếu update thành công, thoát ứng dụng
         if "thành công" in message:
             QApplication.quit()
+
+    def test_auto_update(self):
+        """Test function to manually trigger an update check"""
+        try:
+            has_update, release_info = self.updater.check_for_updates(self.current_version)
+            if has_update:
+                self.show_update_dialog(release_info)
+            else:
+                QMessageBox.information(self, "Thông báo", "Không có phiên bản mới để cập nhật.")
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi", f"Lỗi khi kiểm tra cập nhật: {e}")
 
 
 
