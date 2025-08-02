@@ -89,34 +89,34 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.1"
-        self.setWindowTitle(f"Xử lý phiếu xuất nhập kho hàng loạt v{self.current_version} | www.khoatran.io.vn")
+        self.current_version = "1.0.0"
+        self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
         self.layout = QVBoxLayout()
 
-        self.status_label = QLabel("Danh sách tài liệu Word đang mở:")
+        self.status_label = QLabel("Danh sách phiếu đang mở:")
         self.layout.addWidget(self.status_label)
 
         self.file_list = QListWidget()
         self.layout.addWidget(self.file_list)
 
         button_layout = QHBoxLayout()
-        self.refresh_button = QPushButton("Tải lại danh sách")
+        self.refresh_button = QPushButton("Load DS phiếu")
         self.refresh_button.clicked.connect(self.load_open_documents)
         button_layout.addWidget(self.refresh_button)
 
-        self.process_button = QPushButton("Xử lý các file đã chọn")
+        self.process_button = QPushButton("Thay khung ký tên")
         self.process_button.clicked.connect(self.process_selected_files)
         button_layout.addWidget(self.process_button)
 
         # Thêm nút Replace
-        self.replace_button = QPushButton("Thay thế cụm từ")
+        self.replace_button = QPushButton("Thay tên")
         self.replace_button.clicked.connect(self.replace_selected_files)
         button_layout.addWidget(self.replace_button)
 
         # Thêm nút In trang đầu
-        self.print_button = QPushButton("In trang đầu")
+        self.print_button = QPushButton("In tất cả phiếu")
         self.print_button.clicked.connect(self.print_first_pages)
         button_layout.addWidget(self.print_button)
 
