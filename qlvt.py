@@ -93,7 +93,7 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.3"
+        self.current_version = "1.0.4"
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
@@ -520,11 +520,30 @@ class WordProcessorApp(QWidget):
     def on_update_finished(self, message):
         """Xử lý khi update hoàn tất"""
         self.progress_dialog.close()
-        QMessageBox.information(self, "Cập nhật", message)
         
-        # Nếu update thành công, thoát ứng dụng
+        # Hiển thị thông báo
         if "thành công" in message:
+            # Thành công - hiển thị thông báo và thoát
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Information)
+            msg.setWindowTitle("Cập nhật thành công")
+            msg.setText("✅ Cập nhật thành công!")
+            msg.setInformativeText("Ứng dụng sẽ khởi động lại với phiên bản mới.")
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
+            
+            # Thoát ứng dụng sau khi user đóng dialog
             QApplication.quit()
+        else:
+            # Thất bại - hiển thị lỗi chi tiết
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("Lỗi cập nhật")
+            msg.setText("❌ Cập nhật thất bại")
+            msg.setInformativeText(message)
+            msg.setDetailedText("Chi tiết lỗi:\n" + message)
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
 
     def test_auto_update(self):
         """Test function to manually trigger an update check"""
@@ -1044,6 +1063,13 @@ class AutoUpdater:
             print(f"[UPDATE] Lỗi tải xuống: {e}")
             return None
     
+    def check_admin_privileges(self):
+        """Kiểm tra quyền Administrator"""
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            return False
+    
     def install_update(self, new_exe_path):
         """Cài đặt bản cập nhật"""
         try:
@@ -1051,20 +1077,80 @@ class AutoUpdater:
             print(f"[UPDATE] Cài đặt từ: {new_exe_path}")
             print(f"[UPDATE] Cài đặt đến: {current_exe_path}")
             
-            # Tạo batch script để thay thế file
+            # Kiểm tra file có tồn tại không
+            if not os.path.exists(new_exe_path):
+                print(f"[UPDATE] Lỗi: File nguồn không tồn tại: {new_exe_path}")
+                return False
+            
+            # Kiểm tra file đích có tồn tại không
+            if not os.path.exists(current_exe_path):
+                print(f"[UPDATE] Lỗi: File đích không tồn tại: {current_exe_path}")
+                return False
+            
+            # Tạo batch script cải tiến với xử lý lỗi tốt hơn
             batch_content = f'''@echo off
-echo Đang cài đặt bản cập nhật...
-timeout /t 2 /nobreak >nul
+echo ========================================
+echo    CÀI ĐẶT BẢN CẬP NHẬT QLVT
+echo ========================================
+echo.
+echo Đang chuẩn bị cài đặt...
+timeout /t 3 /nobreak >nul
+
+echo Kiểm tra file nguồn...
+if not exist "{new_exe_path}" (
+    echo LỖI: File nguồn không tồn tại!
+    echo File: {new_exe_path}
+    pause
+    exit /b 1
+)
+
+echo Kiểm tra file đích...
+if not exist "{current_exe_path}" (
+    echo LỖI: File đích không tồn tại!
+    echo File: {current_exe_path}
+    pause
+    exit /b 1
+)
+
+echo Đang thay thế file...
 copy "{new_exe_path}" "{current_exe_path}" /Y
 if %errorlevel% equ 0 (
-    echo Cài đặt thành công!
-    echo Khởi động lại ứng dụng...
+    echo.
+    echo ========================================
+    echo    CÀI ĐẶT THÀNH CÔNG!
+    echo ========================================
+    echo.
+    echo Đang khởi động lại ứng dụng...
+    timeout /t 2 /nobreak >nul
+    
+    echo Xóa file tạm...
+    if exist "{new_exe_path}" del "{new_exe_path}"
+    
+    echo Khởi động ứng dụng mới...
     start "" "{current_exe_path}"
-    del "{new_exe_path}"
+    
+    echo Xóa batch script...
     del "%~f0"
-    exit
+    
+    echo Hoàn tất!
+    exit /b 0
 ) else (
-    echo Lỗi cài đặt!
+    echo.
+    echo ========================================
+    echo    LỖI CÀI ĐẶT!
+    echo ========================================
+    echo.
+    echo Mã lỗi: %errorlevel%
+    echo Có thể do:
+    echo - File đang được sử dụng
+    echo - Không có quyền ghi
+    echo - Antivirus chặn
+    echo.
+    echo Vui lòng:
+    echo 1. Đóng ứng dụng nếu đang mở
+    echo 2. Chạy với quyền Administrator
+    echo 3. Tắt antivirus tạm thời
+    echo.
     pause
     exit /b 1
 )'''
@@ -1073,10 +1159,32 @@ if %errorlevel% equ 0 (
             with open(batch_path, 'w', encoding='utf-8') as f:
                 f.write(batch_content)
             
-            print(f"[UPDATE] Chạy batch script: {batch_path}")
-            # Chạy batch script
-            subprocess.run(['cmd', '/c', batch_path], shell=True)
-            return True
+            print(f"[UPDATE] Tạo batch script: {batch_path}")
+            print(f"[UPDATE] Chạy batch script...")
+            
+            # Chạy batch script với timeout
+            try:
+                result = subprocess.run(
+                    ['cmd', '/c', batch_path], 
+                    shell=True, 
+                    timeout=30,  # Timeout 30 giây
+                    capture_output=True,
+                    text=True
+                )
+                
+                if result.returncode == 0:
+                    print(f"[UPDATE] Batch script chạy thành công")
+                    print(f"[UPDATE] Output: {result.stdout}")
+                    return True
+                else:
+                    print(f"[UPDATE] Batch script lỗi với mã: {result.returncode}")
+                    print(f"[UPDATE] Error: {result.stderr}")
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                print(f"[UPDATE] Batch script timeout sau 30 giây")
+                return False
+                
         except Exception as e:
             print(f"[UPDATE] Lỗi cài đặt: {e}")
             return False
@@ -1100,14 +1208,19 @@ class UpdateWorker(QThread):
             )
             
             if new_exe_path:
+                print(f"[UPDATE] Bắt đầu cài đặt: {new_exe_path}")
                 # Cài đặt
                 if self.updater.install_update(new_exe_path):
+                    print(f"[UPDATE] Cài đặt thành công, chuẩn bị restart")
                     self.finished.emit("✅ Cập nhật thành công! Ứng dụng sẽ khởi động lại.")
                 else:
-                    self.finished.emit("❌ Lỗi cài đặt cập nhật.")
+                    print(f"[UPDATE] Cài đặt thất bại")
+                    self.finished.emit("❌ Lỗi cài đặt cập nhật. Vui lòng:\n1. Đóng ứng dụng nếu đang mở\n2. Chạy với quyền Administrator\n3. Tắt antivirus tạm thời")
             else:
-                self.finished.emit("❌ Lỗi tải xuống cập nhật.")
+                print(f"[UPDATE] Tải xuống thất bại")
+                self.finished.emit("❌ Lỗi tải xuống cập nhật. Vui lòng kiểm tra kết nối internet.")
         except Exception as e:
+            print(f"[UPDATE] Lỗi trong UpdateWorker: {e}")
             self.finished.emit(f"❌ Lỗi cập nhật: {e}")
 
 
