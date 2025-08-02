@@ -1305,10 +1305,9 @@ if %errorlevel% equ 0 (
                 # Kiểm tra quyền admin
                 if not is_admin():
                     print("[UPDATE] Không có quyền admin, thử chạy với elevated privileges...")
-                    # Thử chạy với elevated privileges
-                    result = subprocess.run(['powershell', 'Start-Process', 'cmd', 
-                                           '-ArgumentList', f'/c "{batch_path}"',
-                                           '-Verb', 'RunAs', '-Wait'],
+                    # Thử chạy với elevated privileges - sửa cách truyền argument
+                    powershell_cmd = f'Start-Process cmd -ArgumentList "/c", "{batch_path}" -Verb RunAs -Wait'
+                    result = subprocess.run(['powershell', '-Command', powershell_cmd],
                                           shell=True, 
                                           capture_output=True, 
                                           text=True, 
