@@ -211,7 +211,7 @@ class WordProcessorApp(QWidget):
         button_layout.addWidget(self.replace_button)
 
         # Thêm nút In trang đầu
-        self.print_button = QPushButton("In tất cả phiếu")
+        self.print_button = QPushButton("In phiếu đã chọn")
         self.print_button.clicked.connect(self.print_first_pages)
         button_layout.addWidget(self.print_button)
 
@@ -1073,8 +1073,26 @@ class PrintWorker(QThread):
                 doc = word_app.Documents.Item(i + 1)
                 if doc.Name in self.doc_names:
                     try:
-                        # In trang đầu tiên
-                        doc.PrintOut(From=1, To=1)
+                        # In trang đầu tiên - xóa các trang khác, in
+                        print(f"[DEBUG] Document name: {doc.Name}")
+                        total_pages = doc.ComputeStatistics(2)  # wdStatisticPages = 2
+                        print(f"[DEBUG] Total pages: {total_pages}")
+                        
+                        if total_pages > 1:
+                            # Kích hoạt document này
+                            doc.Activate()
+                            
+                            # Xóa từ trang 2 trở đi
+                            word_app.Selection.GoTo(What=1, Which=1, Count=2)  # Đi đến trang 2
+                            start_pos = word_app.Selection.Start
+                            delete_range = doc.Range(start_pos, doc.Content.End)
+                            delete_range.Delete()
+                            
+                            print(f"[DEBUG] Deleted pages 2-{total_pages}, now only page 1 remains")
+                        
+                        # In toàn bộ document (giờ chỉ còn trang 1)
+                        doc.PrintOut()
+                        
                         printed_count += 1
                         print(f"[DEBUG] Printed: {doc.Name}")
                     except Exception as e:
