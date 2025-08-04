@@ -169,7 +169,7 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.13"
+        self.current_version = "1.0.15"
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
 
@@ -376,10 +376,11 @@ class WordProcessorApp(QWidget):
                     # ⚠️ CHÈN 1 DÒNG vào giữa dòng 3 và 4
                     table.Rows.Add(BeforeRow=table.Rows(4))
                     print(f"[DEBUG] Đã chèn 1 row, số row sau khi chèn: {table.Rows.Count}")
+                
                 # ✅ Tiếp tục xử lý nội dung sau khi thêm dòng
                 try:
-                    table.Cell(1, 3).Range.Text = ""  # Xoá "NGƯỜI LẬP PHIẾU"
-                    table.Cell(1, 3).Merge(table.Cell(1, 4))  # Gộp ô (1,3) và (1,4)
+                    # KHÔNG xoá "NGƯỜI LẬP PHIẾU" - giữ nguyên
+                    # KHÔNG gộp ô (1,3) và (1,4) - giữ nguyên
                     
                     # Tìm ô chứa "VÕ THANH ĐIỀN" ở hàng cuối cùng
                     last_row = table.Rows.Count
@@ -387,14 +388,23 @@ class WordProcessorApp(QWidget):
                     for col in range(1, table.Columns.Count + 1):
                         cell_text = table.Cell(last_row, col).Range.Text.strip()
                         if "VÕ THANH ĐIỀN" in cell_text:
-                            # Gộp ô chứa "VÕ THANH ĐIỀN" với ô bên phải
+                            # Lưu lại ô bên phải để điền họ tên
                             if col < table.Columns.Count:
-                                table.Cell(last_row, col).Merge(table.Cell(last_row, col + 1))
-                                target_cell = table.Cell(last_row, col)  # Lưu ô đích
-                                target_cell.Range.Text = ""  # Xoá "VÕ THANH ĐIỀN" sau khi đã gộp
+                                target_cell = table.Cell(last_row, col + 1)
+                                print(f"[DEBUG] Đã tìm thấy 'VÕ THANH ĐIỀN' ở ô ({last_row}, {col}), sẽ điền họ tên vào ô ({last_row}, {col + 1})")
                             break
                     
-                    # Tìm họ tên người nhận/giao hàng và điền vào ô đích
+                    # Tìm và xóa "PHAN CÔNG HUY" trong cùng hàng cuối
+                    for col in range(1, table.Columns.Count + 1):
+                        cell_text = table.Cell(last_row, col).Range.Text.strip()
+                        if "PHAN CÔNG HUY" in cell_text:
+                            # Xóa nội dung "PHAN CÔNG HUY" khỏi ô
+                            cell = table.Cell(last_row, col)
+                            cell.Range.Text = ""
+                            print(f"[DEBUG] Đã xóa 'PHAN CÔNG HUY' khỏi ô ({last_row}, {col})")
+                            break
+                    
+                    # Tìm họ tên người nhận/giao hàng và điền vào ô bên phải của "VÕ THANH ĐIỀN"
                     if target_cell:
                         print(f"[DEBUG] Đã tìm thấy ô đích để điền họ tên")
                         ho_ten = self.find_ho_ten_nguoi_hang(doc)
@@ -404,7 +414,8 @@ class WordProcessorApp(QWidget):
                         else:
                             print(f"[DEBUG] Không tìm thấy họ tên người nhận/giao hàng")
                     else:
-                        print(f"[DEBUG] Không tìm thấy ô đích (ô chứa VÕ THANH ĐIỀN)")
+                        print(f"[DEBUG] Không tìm thấy ô đích (ô bên phải của VÕ THANH ĐIỀN)")
+                
                 except:
                     pass
         except Exception as e:
