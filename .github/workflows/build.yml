@@ -24,7 +24,7 @@ jobs:
     
     - name: Build executable
       run: |
-        pyinstaller --onefile --windowed --name "QLVT_Processor_v${{ github.ref_name }}" qlvt.py
+        pyinstaller --onefile --windowed --icon=icon.ico --name "QLVT_Processor_v${{ github.ref_name }}" qlvt.py
     
     - name: Create Release
       uses: softprops/action-gh-release@v1
