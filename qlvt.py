@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QMessageBox, QProgressBar
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtGui import QIcon
 import os
 
 REPLACEMENT_FILE = "replacements.txt"
@@ -169,9 +170,21 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_version = "1.0.15"
+        self.current_version = "1.0.16"
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
+        
+        # Thiết lập icon cho ứng dụng
+        icon = QIcon("icon.ico")
+        self.setWindowIcon(icon)
+        
+        # Thiết lập icon cho taskbar (Windows)
+        if hasattr(self, 'setWindowIcon'):
+            # Đảm bảo icon hiển thị trên taskbar
+            self.setWindowIcon(icon)
+            
+        # Thiết lập thuộc tính cửa sổ để hiển thị icon tốt hơn
+        self.setWindowFlags(self.windowFlags() | Qt.Window)
 
         # Khởi tạo ActivationManager
         self.activation_manager = ActivationManager()
@@ -197,26 +210,26 @@ class WordProcessorApp(QWidget):
         self.layout.addWidget(self.file_list)
 
         button_layout = QHBoxLayout()
-        self.refresh_button = QPushButton("Load DS phiếu")
+        self.refresh_button = QPushButton("1.Load DS phiếu")
         self.refresh_button.clicked.connect(self.load_open_documents)
         button_layout.addWidget(self.refresh_button)
 
-        self.process_button = QPushButton("Thay khung ký tên")
+        self.process_button = QPushButton("2.Xử lý khung tên")
         self.process_button.clicked.connect(self.process_selected_files)
         button_layout.addWidget(self.process_button)
 
         # Thêm nút Replace
-        self.replace_button = QPushButton("Thay tên")
+        self.replace_button = QPushButton("3.Thay tên")
         self.replace_button.clicked.connect(self.replace_selected_files)
         button_layout.addWidget(self.replace_button)
 
         # Thêm nút In trang đầu
-        self.print_button = QPushButton("In phiếu đã chọn")
+        self.print_button = QPushButton("4.In phiếu đã chọn")
         self.print_button.clicked.connect(self.print_first_pages)
         button_layout.addWidget(self.print_button)
 
         # Thêm nút Save As (cuối cùng)
-        self.save_as_button = QPushButton("Lưu tất cả file")
+        self.save_as_button = QPushButton("5.Lưu tất cả file")
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
 
@@ -1405,6 +1418,15 @@ class UpdateWorker(QThread):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    # Thiết lập icon cho toàn bộ ứng dụng
+    icon = QIcon("icon.ico")
+    app.setWindowIcon(icon)
+    
+    # Thiết lập tên ứng dụng cho taskbar
+    # app.setApplicationName("QLVT Processor")
+    # app.setApplicationDisplayName("QLVT Processor")
+    
     window = WordProcessorApp()
     window.show()
     sys.exit(app.exec_())
