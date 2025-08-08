@@ -6,6 +6,7 @@ import subprocess
 import ctypes
 import json
 import os
+import time
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
@@ -1106,13 +1107,39 @@ class PrintWorker(QThread):
                             # Kích hoạt document này
                             doc.Activate()
                             
-                            # Xóa từ trang 2 trở đi
+                            # Bước 1: Xóa từ trang 2 trở đi (chức năng ban đầu)
                             word_app.Selection.GoTo(What=1, Which=1, Count=2)  # Đi đến trang 2
                             start_pos = word_app.Selection.Start
                             delete_range = doc.Range(start_pos, doc.Content.End)
                             delete_range.Delete()
+                            print(f"[DEBUG] Bước 1: Đã xóa từ trang 2 trở đi")
                             
-                            print(f"[DEBUG] Deleted pages 2-{total_pages}, now only page 1 remains")
+                            # Bước 2: Thêm - Di chuyển con trỏ đến cuối bảng ký tên và nhấn Delete
+                            tables_on_first_page = [table for table in doc.Tables if table.Range.Information(3) == 1]
+                            if tables_on_first_page:
+                                # Lấy bảng cuối cùng (bảng ký tên)
+                                signature_table = tables_on_first_page[-1]
+                                
+                                # Đặt con trỏ ở cuối bảng ký tên (dòng cuối cùng, cột cuối cùng)
+                                last_row = signature_table.Rows.Count
+                                last_col = signature_table.Columns.Count
+                                
+                                # Đặt con trỏ ở sau bảng ký tên (bên ngoài bảng)
+                                table_range = signature_table.Range
+                                # Đặt con trỏ ở cuối bảng (sau bảng ký tên)
+                                word_app.Selection.SetRange(table_range.End, table_range.End)
+                                
+                                # Nhấn Delete để xóa từ vị trí này đến cuối document
+                                # Mô phỏng Ctrl+Shift+End để chọn từ vị trí con trỏ đến cuối document
+                                word_app.Selection.EndKey(Unit=6, Extend=1)  # wdStory = 6, Extend=1 để chọn
+                                # Xóa vùng đã chọn
+                                word_app.Selection.Delete()
+                                
+                                print(f"[DEBUG] Bước 2: Đã đặt con trỏ ở cuối bảng ký tên và nhấn Delete")
+                            else:
+                                print(f"[DEBUG] Bước 2: Không tìm thấy bảng ký tên để đặt con trỏ")
+                            
+                            print(f"[DEBUG] Hoàn thành cả 2 bước xóa trang")
                         
                         # In toàn bộ document (giờ chỉ còn trang 1)
                         doc.PrintOut()
