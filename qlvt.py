@@ -171,11 +171,9 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
-<<<<<<< HEAD
-        self.current_version = "1.0.4"
-=======
+
         self.current_version = "1.0.16"
->>>>>>> temp-branch
+
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
         
