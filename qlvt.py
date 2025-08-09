@@ -7,6 +7,7 @@ import ctypes
 import json
 import os
 import time
+import webbrowser
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
@@ -236,20 +237,10 @@ class WordProcessorApp(QWidget):
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
 
-<<<<<<< HEAD
-        # Thêm nút Test Auto-Update
-        self.test_update_button = QPushButton("🧪 Test Auto-Update")
-        self.test_update_button.clicked.connect(self.test_auto_update)
-        button_layout.addWidget(self.test_update_button)
-
-        # Thêm nút Version Info
-        self.version_info_button = QPushButton("📊 Version Info")
-        self.version_info_button.clicked.connect(self.show_version_info)
-        button_layout.addWidget(self.version_info_button)
-=======
-    
-       
->>>>>>> temp-branch
+        # Thêm nút đóng toàn bộ phiếu
+        self.close_all_button = QPushButton("6.Đóng toàn bộ phiếu")
+        self.close_all_button.clicked.connect(self.close_all_documents)
+        button_layout.addWidget(self.close_all_button)
 
         self.layout.addLayout(button_layout)
         self.setLayout(self.layout)
@@ -660,121 +651,112 @@ class WordProcessorApp(QWidget):
             print(f"[UPDATE] Lỗi auto-check: {e}")
     
     def show_update_dialog(self, release_info):
-        """Hiển thị dialog xác nhận cập nhật"""
+        """Hiển thị dialog xác nhận cập nhật - bắt buộc phải cập nhật"""
         latest_version = release_info['tag_name'].lstrip('v')
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Cập nhật mới")
-        msg.setText(f"Có phiên bản mới: v{latest_version}")
-        msg.setInformativeText("Bạn có muốn cập nhật ngay bây giờ không?")
-        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg.setDefaultButton(QMessageBox.Yes)
         
-        if msg.exec_() == QMessageBox.Yes:
-            self.perform_update(release_info)
-    
-    def perform_update(self, release_info):
-        """Thực hiện cập nhật"""
-        download_url = self.updater.get_download_url(release_info)
-        if download_url:
-            # Hiển thị progress dialog
-            self.progress_dialog = QDialog(self)
-            self.progress_dialog.setWindowTitle("Đang cập nhật...")
-            self.progress_dialog.setFixedSize(400, 150)
-            
-            layout = QVBoxLayout()
-            
-            self.progress_label = QLabel("Đang tải xuống cập nhật...")
-            layout.addWidget(self.progress_label)
-            
-            self.progress_bar = QProgressBar()
-            layout.addWidget(self.progress_bar)
-            
-            self.progress_dialog.setLayout(layout)
-            self.progress_dialog.show()
-            
-            # Bắt đầu update worker
-            self.update_worker = UpdateWorker(self.updater, download_url, self)
-            self.update_worker.progress.connect(self.update_progress)
-            self.update_worker.finished.connect(self.on_update_finished)
-            self.update_worker.start()
-        else:
-            QMessageBox.warning(self, "Lỗi", "Không thể tải xuống cập nhật.")
-    
-    def update_progress(self, value):
-        """Cập nhật progress bar"""
-        self.progress_bar.setValue(value)
-        if value == 100:
-            self.progress_label.setText("Đang cài đặt cập nhật...")
-    
-    def on_update_finished(self, message):
-        """Xử lý khi update hoàn tất"""
-        self.progress_dialog.close()
+        # Sử dụng QDialog để có thể xử lý sự kiện đóng
+        dialog = QDialog(self)
+        dialog.setWindowTitle("⚠️ Cập nhật bắt buộc")
+        dialog.setModal(True)
+        dialog.setFixedSize(400, 200)
         
-<<<<<<< HEAD
-        # Hiển thị thông báo
-        if "thành công" in message:
-            # Thành công - hiển thị thông báo và thoát
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Information)
-            msg.setWindowTitle("Cập nhật thành công")
-            msg.setText("✅ Cập nhật thành công!")
-            msg.setInformativeText("Ứng dụng sẽ khởi động lại với phiên bản mới.")
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
-            
-            # Thoát ứng dụng sau khi user đóng dialog
-            QApplication.quit()
-        else:
-            # Thất bại - hiển thị lỗi chi tiết
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("Lỗi cập nhật")
-            msg.setText("❌ Cập nhật thất bại")
-            msg.setInformativeText(message)
-            msg.setDetailedText("Chi tiết lỗi:\n" + message)
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
+        # Layout
+        layout = QVBoxLayout()
+        
+        # Icon và tiêu đề
+        title_label = QLabel(f"⚠️ Có phiên bản mới: v{latest_version}")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #d32f2f;")
+        title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # Nội dung
+        content_label = QLabel("Phiên bản hiện tại đã không còn khả dụng.\n\nBạn PHẢI cập nhật để tiếp tục sử dụng ứng dụng.\n\nNhấn 'Cập nhật ngay' để mở trang tải về.")
+        content_label.setAlignment(Qt.AlignCenter)
+        content_label.setWordWrap(True)
+        layout.addWidget(content_label)
+        
+        # Nút cập nhật
+        update_button = QPushButton("Cập nhật ngay")
+        update_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        update_button.clicked.connect(lambda: self._handle_update_click(dialog, release_info))
+        layout.addWidget(update_button)
+        
+        dialog.setLayout(layout)
+        
+        # Xử lý sự kiện đóng dialog (nhấn nút X)
+        dialog.closeEvent = lambda event: self._handle_dialog_close(event, release_info)
+        
+        # Hiển thị dialog
+        dialog.exec_()
+    
+    def _handle_update_click(self, dialog, release_info):
+        """Xử lý khi người dùng nhấn nút cập nhật"""
+        dialog.accept()
+        self.perform_update(release_info)
+    
+    def _handle_dialog_close(self, event, release_info):
+        """Xử lý khi người dùng đóng dialog (nhấn nút X)"""
+        # Ngay cả khi đóng dialog cũng phải cập nhật
+        self.perform_update(release_info)
+        event.accept()
 
-    def test_auto_update(self):
-        """Test function to manually trigger an update check"""
+    def perform_update(self, release_info):
+        """Thực hiện cập nhật - hướng dẫn người dùng đến trang tải về và đóng ứng dụng"""
         try:
-            has_update, release_info = self.updater.check_for_updates(self.current_version)
-            if has_update:
-                self.show_update_dialog(release_info)
+            if release_info:
+                # Tạo URL trực tiếp đến release mới nhất
+                latest_version = release_info['tag_name']
+                release_url = f"https://github.com/nekennick/RunPhieu/releases/tag/{latest_version}"
+                
+                # Mở trực tiếp trình duyệt với URL release cụ thể
+                webbrowser.open(release_url)
+                
+                # Hiển thị thông báo cuối cùng và đóng ứng dụng
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Information)
+                msg.setWindowTitle("Cập nhật bắt buộc")
+                msg.setText("Trình duyệt đã được mở!")
+                msg.setInformativeText(f"Vui lòng tải phiên bản mới v{latest_version} và cài đặt.\n\nỨng dụng sẽ đóng lại sau khi bạn nhấn OK.")
+                msg.setStandardButtons(QMessageBox.Ok)
+                msg.exec_()
+                
+                # Đóng ứng dụng
+                QApplication.quit()
             else:
                 QMessageBox.information(self, "Thông báo", "Không có phiên bản mới để cập nhật.")
         except Exception as e:
-            QMessageBox.critical(self, "Lỗi", f"Lỗi khi kiểm tra cập nhật: {e}")
-
-    def show_version_info(self):
-        """Hiển thị thông tin phiên bản"""
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Thông tin phiên bản")
-        msg.setText(f"Phiên bản hiện tại: v{self.current_version}")
-        msg.setInformativeText("Bạn đang sử dụng phiên bản này để xử lý phiếu hàng loạt.")
-        msg.setStandardButtons(QMessageBox.Ok)
-        msg.exec_()
-=======
-        if "thành công" in message:
-            # Hiển thị thông báo và đóng ứng dụng
-            QMessageBox.information(self, "Cập nhật", 
-                f"{message}\n\nỨng dụng sẽ đóng để hoàn tất cài đặt.\n\nNếu ứng dụng không khởi động lại tự động, vui lòng chạy lại file .exe.")
-            
-            # Đóng ứng dụng ngay lập tức để batch script có thể thay thế file
-            print("[UPDATE] Đóng ứng dụng để hoàn tất cài đặt...")
+            QMessageBox.critical(self, "Lỗi", f"Lỗi khi cập nhật: {str(e)}")
+            # Ngay cả khi có lỗi cũng đóng ứng dụng
             QApplication.quit()
-        else:
-            # Hiển thị lỗi chi tiết hơn
-            error_message = f"Lỗi cập nhật:\n{message}\n\nVui lòng thử lại hoặc liên hệ hỗ trợ."
-            QMessageBox.critical(self, "Lỗi cập nhật", error_message)
->>>>>>> temp-branch
 
+    def close_all_documents(self):
+        """Đóng tất cả các tài liệu Word đang mở"""
+        try:
+            word_app = win32com.client.GetActiveObject("Word.Application")
+            if word_app.Documents.Count > 0:
+                for i in range(word_app.Documents.Count):
+                    doc = word_app.Documents.Item(i + 1)
+                    doc.Close(SaveChanges=False)
+                    print(f"[DEBUG] Đã đóng tài liệu: {doc.Name}")
+                self.status_label.setText("✅ Đã đóng tất cả các tài liệu Word đang mở.")
+            else:
+                self.status_label.setText("⚠️ Không có tài liệu Word nào đang mở để đóng.")
+        except Exception as e:
+            self.status_label.setText(f"Lỗi đóng tài liệu: {e}")
 
-
-    
-            
 
 class ReplaceDialog(QDialog):
     def __init__(self, parent=None):
@@ -1270,15 +1252,19 @@ class AutoUpdater:
             print(f"[UPDATE] Lỗi so sánh version: {e}")
             return False
     
-    def get_download_url(self, release_info):
+    def get_download_url(self):
         """Lấy URL download file .exe"""
         try:
-            for asset in release_info.get('assets', []):
-                if asset['name'].endswith('.exe') and 'QLVT_Processor' in asset['name']:
-                    print(f"[UPDATE] Tìm thấy file: {asset['name']}")
-                    return asset['browser_download_url']
-            print(f"[UPDATE] Không tìm thấy file .exe trong release")
-            return None
+            # Tạo một dialog để yêu cầu người dùng chọn file .exe
+            file_path, _ = QFileDialog.getOpenFileName(
+                None, "Chọn file cập nhật", "", "Executable Files (*.exe)"
+            )
+            if file_path:
+                print(f"[UPDATE] Chọn file cập nhật: {file_path}")
+                return file_path
+            else:
+                print(f"[UPDATE] Không chọn được file cập nhật.")
+                return None
         except Exception as e:
             print(f"[UPDATE] Lỗi lấy download URL: {e}")
             return None
@@ -1326,7 +1312,6 @@ class AutoUpdater:
             print(f"[UPDATE] Cài đặt từ: {new_exe_path}")
             print(f"[UPDATE] Cài đặt đến: {current_exe_path}")
             
-<<<<<<< HEAD
             # Kiểm tra file có tồn tại không
             if not os.path.exists(new_exe_path):
                 print(f"[UPDATE] Lỗi: File nguồn không tồn tại: {new_exe_path}")
@@ -1337,71 +1322,6 @@ class AutoUpdater:
                 print(f"[UPDATE] Lỗi: File đích không tồn tại: {current_exe_path}")
                 return False
             
-            # Tạo batch script cải tiến với xử lý lỗi tốt hơn
-            batch_content = f'''@echo off
-echo ========================================
-echo    CÀI ĐẶT BẢN CẬP NHẬT QLVT
-echo ========================================
-echo.
-echo Đang chuẩn bị cài đặt...
-timeout /t 3 /nobreak >nul
-
-echo Kiểm tra file nguồn...
-if not exist "{new_exe_path}" (
-    echo LỖI: File nguồn không tồn tại!
-    echo File: {new_exe_path}
-    pause
-    exit /b 1
-)
-
-echo Kiểm tra file đích...
-if not exist "{current_exe_path}" (
-    echo LỖI: File đích không tồn tại!
-    echo File: {current_exe_path}
-    pause
-    exit /b 1
-)
-
-echo Đang thay thế file...
-copy "{new_exe_path}" "{current_exe_path}" /Y
-if %errorlevel% equ 0 (
-    echo.
-    echo ========================================
-    echo    CÀI ĐẶT THÀNH CÔNG!
-    echo ========================================
-    echo.
-    echo Đang khởi động lại ứng dụng...
-    timeout /t 2 /nobreak >nul
-    
-    echo Xóa file tạm...
-    if exist "{new_exe_path}" del "{new_exe_path}"
-    
-    echo Khởi động ứng dụng mới...
-    start "" "{current_exe_path}"
-    
-    echo Xóa batch script...
-    del "%~f0"
-    
-    echo Hoàn tất!
-    exit /b 0
-) else (
-    echo.
-    echo ========================================
-    echo    LỖI CÀI ĐẶT!
-    echo ========================================
-    echo.
-    echo Mã lỗi: %errorlevel%
-    echo Có thể do:
-    echo - File đang được sử dụng
-    echo - Không có quyền ghi
-    echo - Antivirus chặn
-    echo.
-    echo Vui lòng:
-    echo 1. Đóng ứng dụng nếu đang mở
-    echo 2. Chạy với quyền Administrator
-    echo 3. Tắt antivirus tạm thời
-    echo.
-=======
             # Tạo batch script để thay thế file với cải tiến
             batch_content = f'''@echo off
 setlocal enabledelayedexpansion
@@ -1414,7 +1334,6 @@ echo [UPDATE] ========================================
 echo [UPDATE] Kiểm tra file nguồn...
 if not exist "{new_exe_path}" (
     echo [UPDATE] LỖI: Không tìm thấy file nguồn {new_exe_path}
->>>>>>> temp-branch
     pause
     exit /b 1
 )
@@ -1510,33 +1429,7 @@ if %errorlevel% equ 0 (
             with open(batch_path, 'w', encoding='utf-8') as f:
                 f.write(batch_content)
             
-<<<<<<< HEAD
             print(f"[UPDATE] Tạo batch script: {batch_path}")
-            print(f"[UPDATE] Chạy batch script...")
-            
-            # Chạy batch script với timeout
-            try:
-                result = subprocess.run(
-                    ['cmd', '/c', batch_path], 
-                    shell=True, 
-                    timeout=30,  # Timeout 30 giây
-                    capture_output=True,
-                    text=True
-                )
-                
-                if result.returncode == 0:
-                    print(f"[UPDATE] Batch script chạy thành công")
-                    print(f"[UPDATE] Output: {result.stdout}")
-                    return True
-                else:
-                    print(f"[UPDATE] Batch script lỗi với mã: {result.returncode}")
-                    print(f"[UPDATE] Error: {result.stderr}")
-                    return False
-                    
-            except subprocess.TimeoutExpired:
-                print(f"[UPDATE] Batch script timeout sau 30 giây")
-=======
-            print(f"[UPDATE] Chạy batch script: {batch_path}")
             
             # Chạy batch script với elevated privileges nếu cần
             try:
@@ -1578,46 +1471,11 @@ if %errorlevel% equ 0 (
                 return False
             except Exception as e:
                 print(f"[UPDATE] Lỗi chạy batch script: {e}")
->>>>>>> temp-branch
                 return False
                 
         except Exception as e:
             print(f"[UPDATE] Lỗi cài đặt: {e}")
             return False
-
-
-class UpdateWorker(QThread):
-    progress = pyqtSignal(int)
-    finished = pyqtSignal(str)
-    
-    def __init__(self, updater, download_url, parent=None):
-        super().__init__(parent)
-        self.updater = updater
-        self.download_url = download_url
-    
-    def run(self):
-        try:
-            # Tải xuống với progress
-            new_exe_path = self.updater.download_update(
-                self.download_url, 
-                self.progress.emit
-            )
-            
-            if new_exe_path:
-                print(f"[UPDATE] Bắt đầu cài đặt: {new_exe_path}")
-                # Cài đặt
-                if self.updater.install_update(new_exe_path):
-                    print(f"[UPDATE] Cài đặt thành công, chuẩn bị restart")
-                    self.finished.emit("✅ Cập nhật thành công! Ứng dụng sẽ khởi động lại.")
-                else:
-                    print(f"[UPDATE] Cài đặt thất bại")
-                    self.finished.emit("❌ Lỗi cài đặt cập nhật. Vui lòng:\n1. Đóng ứng dụng nếu đang mở\n2. Chạy với quyền Administrator\n3. Tắt antivirus tạm thời")
-            else:
-                print(f"[UPDATE] Tải xuống thất bại")
-                self.finished.emit("❌ Lỗi tải xuống cập nhật. Vui lòng kiểm tra kết nối internet.")
-        except Exception as e:
-            print(f"[UPDATE] Lỗi trong UpdateWorker: {e}")
-            self.finished.emit(f"❌ Lỗi cập nhật: {e}")
 
 
 if __name__ == "__main__":
