@@ -5,6 +5,8 @@ import requests
 import subprocess
 import ctypes
 import json
+import os
+import time
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
@@ -12,9 +14,85 @@ from PyQt5.QtWidgets import (
     QScrollArea, QMessageBox, QProgressBar
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtGui import QIcon
 import os
 
 REPLACEMENT_FILE = "replacements.txt"
+
+def is_admin():
+    """Kiểm tra xem ứng dụng có chạy với quyền admin không"""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+# Thêm class ActivationManager
+class ActivationManager:
+    def __init__(self):
+        # Gist ID sẽ được tạo và cập nhật sau
+        self.gist_id = "0a9de72209b228810b5feee5af13005e"  # Sẽ thay thế bằng Gist ID thực
+        self.api_url = f"https://api.github.com/gists/{self.gist_id}"
+    
+    def check_activation_status(self):
+        """Kiểm tra trạng thái activation từ GitHub Gist"""
+        try:
+            print(f"[ACTIVATION] Đang kiểm tra trạng thái activation...")
+            response = requests.get(self.api_url, timeout=10)
+            
+            if response.status_code == 200:
+                gist_data = response.json()
+                files = gist_data.get('files', {})
+                
+                # Tìm file activation_status.json
+                activation_file = None
+                for filename, file_data in files.items():
+                    if filename == 'activation_status.json':
+                        activation_file = file_data
+                        break
+                
+                if activation_file:
+                    content = activation_file.get('content', '{}')
+                    try:
+                        status_data = json.loads(content)
+                        print(f"[ACTIVATION] Trạng thái: {status_data}")
+                        return status_data
+                    except json.JSONDecodeError as e:
+                        print(f"[ACTIVATION] Lỗi parse JSON: {e}")
+                        return self._get_deactivated_status("Lỗi định dạng dữ liệu từ server")
+                else:
+                    print(f"[ACTIVATION] Không tìm thấy file activation_status.json")
+                    return self._get_deactivated_status("Không tìm thấy thông tin kích hoạt trên server")
+            else:
+                print(f"[ACTIVATION] Lỗi API: {response.status_code}")
+                return self._get_deactivated_status(f"Lỗi kết nối đến server (HTTP {response.status_code})")
+                
+        except requests.exceptions.Timeout:
+            print(f"[ACTIVATION] Timeout khi kiểm tra activation")
+            return self._get_deactivated_status("Không thể kết nối đến server (timeout)")
+        except requests.exceptions.ConnectionError:
+            print(f"[ACTIVATION] Lỗi kết nối khi kiểm tra activation")
+            return self._get_deactivated_status("Không có kết nối mạng đến server")
+        except Exception as e:
+            print(f"[ACTIVATION] Lỗi kiểm tra activation: {e}")
+            return self._get_deactivated_status(f"Lỗi không xác định: {str(e)}")
+    
+    def _get_default_status(self):
+        """Trả về trạng thái mặc định (activated) - chỉ dùng khi server trả về activated=True"""
+        return {
+            "activated": True,
+            "expiry_date": "2025-12-31",
+            "message": "Ứng dụng đang hoạt động bình thường",
+            "last_updated": "2024-01-15T10:30:00Z"
+        }
+    
+    def _get_deactivated_status(self, message):
+        """Trả về trạng thái deactivated cho các lỗi kết nối"""
+        return {
+            "activated": False,
+            "expiry_date": None,
+            "message": message,
+            "last_updated": "2024-01-15T10:30:00Z"
+        }
 
 class ReplaceWorker(QThread):
     finished = pyqtSignal(str)
@@ -93,9 +171,32 @@ class ReplaceWorker(QThread):
 class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
+<<<<<<< HEAD
         self.current_version = "1.0.4"
+=======
+        self.current_version = "1.0.16"
+>>>>>>> temp-branch
         self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
+        
+        # Thiết lập icon cho ứng dụng
+        icon = QIcon("icon.ico")
+        self.setWindowIcon(icon)
+        
+        # Thiết lập icon cho taskbar (Windows)
+        if hasattr(self, 'setWindowIcon'):
+            # Đảm bảo icon hiển thị trên taskbar
+            self.setWindowIcon(icon)
+            
+        # Thiết lập thuộc tính cửa sổ để hiển thị icon tốt hơn
+        self.setWindowFlags(self.windowFlags() | Qt.Window)
+
+        # Khởi tạo ActivationManager
+        self.activation_manager = ActivationManager()
+        
+        # Kiểm tra activation trước khi khởi tạo UI
+        if not self._check_activation():
+            return  # Thoát nếu không được kích hoạt
 
         # Khởi tạo AutoUpdater
         self.updater = AutoUpdater("nekennick/RunPhieu")
@@ -114,29 +215,30 @@ class WordProcessorApp(QWidget):
         self.layout.addWidget(self.file_list)
 
         button_layout = QHBoxLayout()
-        self.refresh_button = QPushButton("Load DS phiếu")
+        self.refresh_button = QPushButton("1.Load DS phiếu")
         self.refresh_button.clicked.connect(self.load_open_documents)
         button_layout.addWidget(self.refresh_button)
 
-        self.process_button = QPushButton("Thay khung ký tên")
+        self.process_button = QPushButton("2.Xử lý khung tên")
         self.process_button.clicked.connect(self.process_selected_files)
         button_layout.addWidget(self.process_button)
 
         # Thêm nút Replace
-        self.replace_button = QPushButton("Thay tên")
+        self.replace_button = QPushButton("3.Thay tên")
         self.replace_button.clicked.connect(self.replace_selected_files)
         button_layout.addWidget(self.replace_button)
 
         # Thêm nút In trang đầu
-        self.print_button = QPushButton("In tất cả phiếu")
+        self.print_button = QPushButton("4.In phiếu đã chọn")
         self.print_button.clicked.connect(self.print_first_pages)
         button_layout.addWidget(self.print_button)
 
         # Thêm nút Save As (cuối cùng)
-        self.save_as_button = QPushButton("Lưu tất cả file")
+        self.save_as_button = QPushButton("5.Lưu tất cả file")
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
 
+<<<<<<< HEAD
         # Thêm nút Test Auto-Update
         self.test_update_button = QPushButton("🧪 Test Auto-Update")
         self.test_update_button.clicked.connect(self.test_auto_update)
@@ -146,12 +248,91 @@ class WordProcessorApp(QWidget):
         self.version_info_button = QPushButton("📊 Version Info")
         self.version_info_button.clicked.connect(self.show_version_info)
         button_layout.addWidget(self.version_info_button)
+=======
+    
+       
+>>>>>>> temp-branch
 
         self.layout.addLayout(button_layout)
         self.setLayout(self.layout)
 
         # 🔄 GỌI NGAY khi khởi động để tự động tải danh sách tài liệu đang mở
         self.load_open_documents()
+
+    def _check_activation(self):
+        """Kiểm tra trạng thái activation khi khởi động"""
+        try:
+            status = self.activation_manager.check_activation_status()
+            
+            if not status.get('activated', True):
+                # Hiển thị thông báo deactivated
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setWindowTitle("Lỗi")
+                msg.setText("❌ Không có kết nối đến server")
+                msg.setInformativeText(status.get('message', 'Không có thông tin chi tiết'))
+                
+                # Thêm thông tin expiry date nếu có
+                expiry_date = status.get('expiry_date')
+                if expiry_date:
+                    msg.setDetailedText(f"Ngày hết hạn: {expiry_date}\n\nLiên hệ admin để được hỗ trợ.")
+                
+                msg.setStandardButtons(QMessageBox.Ok)
+                msg.exec_()
+                
+                # Thoát ứng dụng
+                QApplication.quit()
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"[ACTIVATION] Lỗi kiểm tra activation: {e}")
+            # Nếu có lỗi, cũng thoát ứng dụng để tránh bypass
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle("Lỗi")
+            msg.setText("❌ Không thể kiểm tra trạng thái kích hoạt")
+            msg.setInformativeText("Ứng dụng sẽ thoát để đảm bảo an toàn.")
+            msg.setDetailedText(f"Chi tiết lỗi: {str(e)}")
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
+            
+            QApplication.quit()
+            return False
+
+    def show_activation_status(self):
+        """Hiển thị thông tin trạng thái activation"""
+        try:
+            status = self.activation_manager.check_activation_status()
+            
+            msg = QMessageBox()
+            if status.get('activated', True):
+                msg.setIcon(QMessageBox.Information)
+                msg.setWindowTitle("Trạng thái")
+                msg.setText("✅ Ứng dụng đang được kích hoạt")
+            else:
+                msg.setIcon(QMessageBox.Warning)
+                msg.setWindowTitle("Trạng thái")
+                msg.setText("❌ Lỗi kết nối đến server")
+            
+            # Thông tin chi tiết
+            details = []
+            if 'expiry_date' in status:
+                details.append(f"Ngày hết hạn: {status['expiry_date']}")
+            if 'message' in status:
+                details.append(f"Thông báo: {status['message']}")
+            if 'last_updated' in status:
+                details.append(f"Cập nhật lần cuối: {status['last_updated']}")
+            
+            if details:
+                msg.setInformativeText('\n'.join(details))
+            
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Lỗi", f"Không thể kiểm tra trạng thái activation: {e}")
 
     def load_open_documents(self):
         self.file_list.clear()
@@ -225,10 +406,11 @@ class WordProcessorApp(QWidget):
                     # ⚠️ CHÈN 1 DÒNG vào giữa dòng 3 và 4
                     table.Rows.Add(BeforeRow=table.Rows(4))
                     print(f"[DEBUG] Đã chèn 1 row, số row sau khi chèn: {table.Rows.Count}")
+                
                 # ✅ Tiếp tục xử lý nội dung sau khi thêm dòng
                 try:
-                    table.Cell(1, 3).Range.Text = ""  # Xoá "NGƯỜI LẬP PHIẾU"
-                    table.Cell(1, 3).Merge(table.Cell(1, 4))  # Gộp ô (1,3) và (1,4)
+                    # KHÔNG xoá "NGƯỜI LẬP PHIẾU" - giữ nguyên
+                    # KHÔNG gộp ô (1,3) và (1,4) - giữ nguyên
                     
                     # Tìm ô chứa "VÕ THANH ĐIỀN" ở hàng cuối cùng
                     last_row = table.Rows.Count
@@ -236,14 +418,23 @@ class WordProcessorApp(QWidget):
                     for col in range(1, table.Columns.Count + 1):
                         cell_text = table.Cell(last_row, col).Range.Text.strip()
                         if "VÕ THANH ĐIỀN" in cell_text:
-                            # Gộp ô chứa "VÕ THANH ĐIỀN" với ô bên phải
+                            # Lưu lại ô bên phải để điền họ tên
                             if col < table.Columns.Count:
-                                table.Cell(last_row, col).Merge(table.Cell(last_row, col + 1))
-                                target_cell = table.Cell(last_row, col)  # Lưu ô đích
-                                target_cell.Range.Text = ""  # Xoá "VÕ THANH ĐIỀN" sau khi đã gộp
+                                target_cell = table.Cell(last_row, col + 1)
+                                print(f"[DEBUG] Đã tìm thấy 'VÕ THANH ĐIỀN' ở ô ({last_row}, {col}), sẽ điền họ tên vào ô ({last_row}, {col + 1})")
                             break
                     
-                    # Tìm họ tên người nhận/giao hàng và điền vào ô đích
+                    # Tìm và xóa "PHAN CÔNG HUY" trong cùng hàng cuối
+                    for col in range(1, table.Columns.Count + 1):
+                        cell_text = table.Cell(last_row, col).Range.Text.strip()
+                        if "PHAN CÔNG HUY" in cell_text:
+                            # Xóa nội dung "PHAN CÔNG HUY" khỏi ô
+                            cell = table.Cell(last_row, col)
+                            cell.Range.Text = ""
+                            print(f"[DEBUG] Đã xóa 'PHAN CÔNG HUY' khỏi ô ({last_row}, {col})")
+                            break
+                    
+                    # Tìm họ tên người nhận/giao hàng và điền vào ô bên phải của "VÕ THANH ĐIỀN"
                     if target_cell:
                         print(f"[DEBUG] Đã tìm thấy ô đích để điền họ tên")
                         ho_ten = self.find_ho_ten_nguoi_hang(doc)
@@ -253,7 +444,8 @@ class WordProcessorApp(QWidget):
                         else:
                             print(f"[DEBUG] Không tìm thấy họ tên người nhận/giao hàng")
                     else:
-                        print(f"[DEBUG] Không tìm thấy ô đích (ô chứa VÕ THANH ĐIỀN)")
+                        print(f"[DEBUG] Không tìm thấy ô đích (ô bên phải của VÕ THANH ĐIỀN)")
+                
                 except:
                     pass
         except Exception as e:
@@ -521,6 +713,7 @@ class WordProcessorApp(QWidget):
         """Xử lý khi update hoàn tất"""
         self.progress_dialog.close()
         
+<<<<<<< HEAD
         # Hiển thị thông báo
         if "thành công" in message:
             # Thành công - hiển thị thông báo và thoát
@@ -565,6 +758,20 @@ class WordProcessorApp(QWidget):
         msg.setInformativeText("Bạn đang sử dụng phiên bản này để xử lý phiếu hàng loạt.")
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec_()
+=======
+        if "thành công" in message:
+            # Hiển thị thông báo và đóng ứng dụng
+            QMessageBox.information(self, "Cập nhật", 
+                f"{message}\n\nỨng dụng sẽ đóng để hoàn tất cài đặt.\n\nNếu ứng dụng không khởi động lại tự động, vui lòng chạy lại file .exe.")
+            
+            # Đóng ứng dụng ngay lập tức để batch script có thể thay thế file
+            print("[UPDATE] Đóng ứng dụng để hoàn tất cài đặt...")
+            QApplication.quit()
+        else:
+            # Hiển thị lỗi chi tiết hơn
+            error_message = f"Lỗi cập nhật:\n{message}\n\nVui lòng thử lại hoặc liên hệ hỗ trợ."
+            QMessageBox.critical(self, "Lỗi cập nhật", error_message)
+>>>>>>> temp-branch
 
 
 
@@ -954,8 +1161,52 @@ class PrintWorker(QThread):
                 doc = word_app.Documents.Item(i + 1)
                 if doc.Name in self.doc_names:
                     try:
-                        # In trang đầu tiên
-                        doc.PrintOut(From=1, To=1)
+                        # In trang đầu tiên - xóa các trang khác, in
+                        print(f"[DEBUG] Document name: {doc.Name}")
+                        total_pages = doc.ComputeStatistics(2)  # wdStatisticPages = 2
+                        print(f"[DEBUG] Total pages: {total_pages}")
+                        
+                        if total_pages > 1:
+                            # Kích hoạt document này
+                            doc.Activate()
+                            
+                            # Bước 1: Xóa từ trang 2 trở đi (chức năng ban đầu)
+                            word_app.Selection.GoTo(What=1, Which=1, Count=2)  # Đi đến trang 2
+                            start_pos = word_app.Selection.Start
+                            delete_range = doc.Range(start_pos, doc.Content.End)
+                            delete_range.Delete()
+                            print(f"[DEBUG] Bước 1: Đã xóa từ trang 2 trở đi")
+                            
+                            # Bước 2: Thêm - Di chuyển con trỏ đến cuối bảng ký tên và nhấn Delete
+                            tables_on_first_page = [table for table in doc.Tables if table.Range.Information(3) == 1]
+                            if tables_on_first_page:
+                                # Lấy bảng cuối cùng (bảng ký tên)
+                                signature_table = tables_on_first_page[-1]
+                                
+                                # Đặt con trỏ ở cuối bảng ký tên (dòng cuối cùng, cột cuối cùng)
+                                last_row = signature_table.Rows.Count
+                                last_col = signature_table.Columns.Count
+                                
+                                # Đặt con trỏ ở sau bảng ký tên (bên ngoài bảng)
+                                table_range = signature_table.Range
+                                # Đặt con trỏ ở cuối bảng (sau bảng ký tên)
+                                word_app.Selection.SetRange(table_range.End, table_range.End)
+                                
+                                # Nhấn Delete để xóa từ vị trí này đến cuối document
+                                # Mô phỏng Ctrl+Shift+End để chọn từ vị trí con trỏ đến cuối document
+                                word_app.Selection.EndKey(Unit=6, Extend=1)  # wdStory = 6, Extend=1 để chọn
+                                # Xóa vùng đã chọn
+                                word_app.Selection.Delete()
+                                
+                                print(f"[DEBUG] Bước 2: Đã đặt con trỏ ở cuối bảng ký tên và nhấn Delete")
+                            else:
+                                print(f"[DEBUG] Bước 2: Không tìm thấy bảng ký tên để đặt con trỏ")
+                            
+                            print(f"[DEBUG] Hoàn thành cả 2 bước xóa trang")
+                        
+                        # In toàn bộ document (giờ chỉ còn trang 1)
+                        doc.PrintOut()
+                        
                         printed_count += 1
                         print(f"[DEBUG] Printed: {doc.Name}")
                     except Exception as e:
@@ -1077,6 +1328,7 @@ class AutoUpdater:
             print(f"[UPDATE] Cài đặt từ: {new_exe_path}")
             print(f"[UPDATE] Cài đặt đến: {current_exe_path}")
             
+<<<<<<< HEAD
             # Kiểm tra file có tồn tại không
             if not os.path.exists(new_exe_path):
                 print(f"[UPDATE] Lỗi: File nguồn không tồn tại: {new_exe_path}")
@@ -1151,14 +1403,116 @@ if %errorlevel% equ 0 (
     echo 2. Chạy với quyền Administrator
     echo 3. Tắt antivirus tạm thời
     echo.
+=======
+            # Tạo batch script để thay thế file với cải tiến
+            batch_content = f'''@echo off
+setlocal enabledelayedexpansion
+
+echo [UPDATE] ========================================
+echo [UPDATE] Bắt đầu cài đặt bản cập nhật...
+echo [UPDATE] Thời gian: %date% %time%
+echo [UPDATE] ========================================
+
+echo [UPDATE] Kiểm tra file nguồn...
+if not exist "{new_exe_path}" (
+    echo [UPDATE] LỖI: Không tìm thấy file nguồn {new_exe_path}
+>>>>>>> temp-branch
     pause
     exit /b 1
+)
+
+echo [UPDATE] Kiểm tra file đích...
+if not exist "{current_exe_path}" (
+    echo [UPDATE] LỖI: Không tìm thấy file đích {current_exe_path}
+    pause
+    exit /b 1
+)
+
+echo [UPDATE] Đang đóng ứng dụng hiện tại...
+echo [UPDATE] Tên process: {os.path.basename(current_exe_path)}
+
+REM Đợi ứng dụng đóng hoàn toàn
+timeout /t 5 /nobreak >nul
+
+REM Kiểm tra xem process có còn chạy không
+:check_lock
+echo [UPDATE] Kiểm tra process...
+tasklist /FI "IMAGENAME eq {os.path.basename(current_exe_path)}" 2>NUL | find /I /N "{os.path.basename(current_exe_path)}">NUL
+if "%ERRORLEVEL%"=="0" (
+    echo [UPDATE] Ứng dụng vẫn đang chạy, đợi thêm...
+    timeout /t 3 /nobreak >nul
+    goto check_lock
+)
+
+echo [UPDATE] Ứng dụng đã đóng hoàn toàn!
+echo [UPDATE] Bắt đầu cài đặt...
+
+REM Tạo backup trước khi cài đặt
+echo [UPDATE] Tạo backup...
+copy "{current_exe_path}" "{current_exe_path}.backup" /Y >nul 2>&1
+
+REM Thử copy với retry
+set retry_count=0
+:copy_retry
+echo [UPDATE] Thử copy lần !retry_count!...
+copy "{new_exe_path}" "{current_exe_path}" /Y
+if %errorlevel% equ 0 (
+    echo [UPDATE] ========================================
+    echo [UPDATE] CÀI ĐẶT THÀNH CÔNG!
+    echo [UPDATE] ========================================
+    
+    echo [UPDATE] Kiểm tra file mới...
+    if exist "{current_exe_path}" (
+        echo [UPDATE] File mới đã được tạo thành công
+    ) else (
+        echo [UPDATE] LỖI: File mới không tồn tại
+        pause
+        exit /b 1
+    )
+    
+    echo [UPDATE] Khởi động lại ứng dụng...
+    timeout /t 2 /nobreak >nul
+    
+    REM Khởi động ứng dụng mới
+    start "" "{current_exe_path}"
+    
+    echo [UPDATE] Dọn dẹp file tạm...
+    del "{new_exe_path}" 2>nul
+    del "{current_exe_path}.backup" 2>nul
+    del "%~f0" 2>nul
+    
+    echo [UPDATE] ========================================
+    echo [UPDATE] HOÀN TẤT CÀI ĐẶT!
+    echo [UPDATE] ========================================
+    timeout /t 3 /nobreak >nul
+    exit /b 0
+) else (
+    set /a retry_count+=1
+    echo [UPDATE] Lỗi copy (lần !retry_count!), errorlevel: %errorlevel%
+    if !retry_count! lss 5 (
+        echo [UPDATE] Thử lại sau 3 giây...
+        timeout /t 3 /nobreak >nul
+        goto copy_retry
+    ) else (
+        echo [UPDATE] ========================================
+        echo [UPDATE] LỖI CÀI ĐẶT SAU 5 LẦN THỬ!
+        echo [UPDATE] ========================================
+        echo [UPDATE] Chi tiết lỗi:
+        echo [UPDATE] - File nguồn: {new_exe_path}
+        echo [UPDATE] - File đích: {current_exe_path}
+        echo [UPDATE] - Error level cuối: %errorlevel%
+        echo [UPDATE] 
+        echo [UPDATE] Vui lòng thử cài đặt thủ công hoặc liên hệ hỗ trợ.
+        pause
+        exit /b 1
+    )
 )'''
             
             batch_path = os.path.join(self.temp_dir, 'update_qlvt.bat')
             with open(batch_path, 'w', encoding='utf-8') as f:
                 f.write(batch_content)
             
+<<<<<<< HEAD
             print(f"[UPDATE] Tạo batch script: {batch_path}")
             print(f"[UPDATE] Chạy batch script...")
             
@@ -1183,6 +1537,50 @@ if %errorlevel% equ 0 (
                     
             except subprocess.TimeoutExpired:
                 print(f"[UPDATE] Batch script timeout sau 30 giây")
+=======
+            print(f"[UPDATE] Chạy batch script: {batch_path}")
+            
+            # Chạy batch script với elevated privileges nếu cần
+            try:
+                print(f"[UPDATE] Chạy batch script với timeout 120 giây...")
+                
+                # Kiểm tra quyền admin
+                if not is_admin():
+                    print("[UPDATE] Không có quyền admin, thử chạy với elevated privileges...")
+                    # Thử chạy với elevated privileges - sửa cách truyền argument
+                    powershell_cmd = f'Start-Process cmd -ArgumentList "/c", "{batch_path}" -Verb RunAs -Wait'
+                    result = subprocess.run(['powershell', '-Command', powershell_cmd],
+                                          shell=True, 
+                                          capture_output=True, 
+                                          text=True, 
+                                          timeout=120)
+                else:
+                    # Chạy bình thường nếu đã có quyền admin
+                    result = subprocess.run(['cmd', '/c', batch_path], 
+                                          shell=True, 
+                                          capture_output=True, 
+                                          text=True, 
+                                          timeout=120)
+                
+                print(f"[UPDATE] Batch script return code: {result.returncode}")
+                print(f"[UPDATE] Batch script output: {result.stdout}")
+                if result.stderr:
+                    print(f"[UPDATE] Batch script errors: {result.stderr}")
+                
+                # Kiểm tra kết quả chi tiết
+                if result.returncode == 0:
+                    print("[UPDATE] Batch script hoàn thành thành công")
+                    return True
+                else:
+                    print(f"[UPDATE] Batch script thất bại với return code: {result.returncode}")
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                print(f"[UPDATE] Batch script timeout sau 120 giây")
+                return False
+            except Exception as e:
+                print(f"[UPDATE] Lỗi chạy batch script: {e}")
+>>>>>>> temp-branch
                 return False
                 
         except Exception as e:
@@ -1226,6 +1624,15 @@ class UpdateWorker(QThread):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    # Thiết lập icon cho toàn bộ ứng dụng
+    icon = QIcon("icon.ico")
+    app.setWindowIcon(icon)
+    
+    # Thiết lập tên ứng dụng cho taskbar
+    # app.setApplicationName("QLVT Processor")
+    # app.setApplicationDisplayName("QLVT Processor")
+    
     window = WordProcessorApp()
     window.show()
     sys.exit(app.exec_())
