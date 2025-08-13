@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
     QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
     QLineEdit, QFormLayout, QDialog, QDialogButtonBox, QFileDialog,
-    QScrollArea, QMessageBox, QProgressBar
+    QScrollArea, QMessageBox, QProgressBar, QTextEdit
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon
@@ -26,6 +26,42 @@ def is_admin():
         return ctypes.windll.shell32.IsUserAnAdmin()
     except:
         return False
+
+class Logger:
+    def __init__(self):
+        self.log_entries = []
+        self.summary = {
+            "processed": 0,
+            "failed": 0,
+            "total": 0
+        }
+    
+    def clear(self):
+        """Xóa log cho thao tác mới"""
+        self.log_entries = []
+        self.summary = {
+            "processed": 0,
+            "failed": 0,
+            "total": 0
+        }
+    
+    def log(self, message, status="INFO"):
+        """Ghi log với timestamp"""
+        timestamp = time.strftime("%H:%M:%S", time.localtime())
+        entry = f"[{timestamp}] [{status}] {message}"
+        print(entry)
+        self.log_entries.append(entry)
+    
+    def add_to_summary(self, processed=0, failed=0, total=0):
+        """Cập nhật summary"""
+        self.summary["processed"] += processed
+        self.summary["failed"] += failed
+        self.summary["total"] += total
+    
+    def get_summary(self):
+        """Lấy thông tin tổng hợp"""
+        return (f"✓ Đã xử lý: {self.summary['processed']}/{self.summary['total']} file\n"
+                f"✗ Lỗi: {self.summary['failed']} file")
 
 # Thêm class ActivationManager
 class ActivationManager:
@@ -174,8 +210,11 @@ class WordProcessorApp(QWidget):
         super().__init__()
 
         self.current_version = "1.0.16"
+        
+        # Khởi tạo progress bar
+        self.progress_bar = None
 
-        self.setWindowTitle(f"Xử lý phiếu hàng loạt v{self.current_version} | www.khoatran.io.vn")
+        self.setWindowTitle(f"Xử lý phiếu hàng loạt {self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
         
         # Thiết lập icon cho ứng dụng
@@ -238,7 +277,7 @@ class WordProcessorApp(QWidget):
         button_layout.addWidget(self.save_as_button)
 
         # Thêm nút đóng toàn bộ phiếu
-        self.close_all_button = QPushButton("6.Đóng toàn bộ phiếu")
+        self.close_all_button = QPushButton("6.Đóng từng phiếu")
         self.close_all_button.clicked.connect(self.close_all_documents)
         button_layout.addWidget(self.close_all_button)
 
@@ -247,6 +286,23 @@ class WordProcessorApp(QWidget):
 
         # 🔄 GỌI NGAY khi khởi động để tự động tải danh sách tài liệu đang mở
         self.load_open_documents()
+    
+    def setup_progress_bar(self):
+        """Tạo và cấu hình progress bar"""
+        if not self.progress_bar:
+            self.progress_bar = QProgressBar()
+            self.layout.insertWidget(self.layout.count() - 1, self.progress_bar)
+    
+    def cleanup_progress_bar(self):
+        """Xóa progress bar"""
+        if self.progress_bar:
+            self.progress_bar.deleteLater()
+            self.progress_bar = None
+            
+    def update_progress(self, value):
+        """Cập nhật giá trị progress bar"""
+        if self.progress_bar:
+            self.progress_bar.setValue(value)
 
     def _check_activation(self):
         """Kiểm tra trạng thái activation khi khởi động"""
@@ -352,18 +408,71 @@ class WordProcessorApp(QWidget):
             self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để xử lý.")
             return
 
-        pythoncom.CoInitialize()
+        # Hiển thị progress bar
+        self.progress_bar = QProgressBar()
+        self.layout.addWidget(self.progress_bar)
+        self.progress_bar.setMaximum(len(selected_files))
+        
+        total_files = len(selected_files)
+        processed_files = 0
+        failed_files = []
+        batch_size = 10  # Xử lý mỗi lần 10 file
+        
         try:
-            word_app = win32com.client.GetActiveObject("Word.Application")
-            for i in range(word_app.Documents.Count):
-                doc = word_app.Documents.Item(i + 1)
-                if doc.Name in selected_files:
-                    self.modify_document(doc)
-            self.status_label.setText("✅ Đã xử lý xong các tài liệu được chọn.")
+            # Xử lý theo batch để tránh quá tải
+            for i in range(0, total_files, batch_size):
+                batch = selected_files[i:i + batch_size]
+                pythoncom.CoInitialize()
+                try:
+                    word_app = win32com.client.GetActiveObject("Word.Application")
+                    for doc_name in batch:
+                        try:
+                            # Tìm document theo tên
+                            doc = None
+                            for j in range(word_app.Documents.Count):
+                                current_doc = word_app.Documents.Item(j + 1)
+                                if current_doc.Name == doc_name:
+                                    doc = current_doc
+                                    break
+                            
+                            if doc:
+                                print(f"[DEBUG] Đang xử lý file: {doc_name}")
+                                self.modify_document(doc)
+                                processed_files += 1
+                                print(f"[DEBUG] ✓ Đã xử lý thành công: {doc_name}")
+                            else:
+                                print(f"[DEBUG] ✗ Không tìm thấy file: {doc_name}")
+                                failed_files.append(f"{doc_name} (không tìm thấy)")
+                            
+                        except Exception as e:
+                            print(f"[DEBUG] ✗ Lỗi xử lý file {doc_name}: {str(e)}")
+                            failed_files.append(f"{doc_name} (lỗi: {str(e)})")
+                        
+                        # Cập nhật progress bar
+                        self.progress_bar.setValue(processed_files)
+                        QApplication.processEvents()  # Cập nhật UI
+                        
+                except Exception as e:
+                    print(f"[DEBUG] Lỗi batch {i//batch_size + 1}: {str(e)}")
+                finally:
+                    pythoncom.CoUninitialize()
+            
+            # Hiển thị kết quả
+            if failed_files:
+                error_msg = "\\n".join(failed_files)
+                self.status_label.setText(f"⚠️ Đã xử lý {processed_files}/{total_files} file. "
+                                      f"{len(failed_files)} file lỗi - xem chi tiết trong log")
+                print(f"[DEBUG] Các file lỗi:\\n{error_msg}")
+            else:
+                self.status_label.setText(f"✅ Đã xử lý thành công {processed_files}/{total_files} file.")
+            
         except Exception as e:
             self.status_label.setText(f"Lỗi xử lý: {e}")
         finally:
-            pythoncom.CoUninitialize()
+            # Xóa progress bar
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.deleteLater()
+                self.progress_bar = None
 
     def replace_in_first_page(self, doc, replacements):
         try:
@@ -495,13 +604,19 @@ class WordProcessorApp(QWidget):
             self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để in.")
             return
 
+        self.setup_progress_bar()
         self.status_label.setText("⏳ Đang in trang đầu, vui lòng chờ...")
+        print(f"[DEBUG] Bắt đầu in {len(selected_files)} tài liệu")
+        
+        # Khởi tạo và chạy worker
         self.print_thread = PrintWorker(selected_files)
+        self.print_thread.progress.connect(self.update_progress)
         self.print_thread.finished.connect(self.on_print_finished)
         self.print_thread.start()
 
     def on_print_finished(self, message):
         self.status_label.setText(message)
+        self.cleanup_progress_bar()
 
     def find_ho_ten_nguoi_hang(self, doc):
         """Tìm họ tên người nhận/giao hàng trong document"""
@@ -1478,17 +1593,292 @@ if %errorlevel% equ 0 (
             return False
 
 
+class PrintWorker(QThread):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    
+    def __init__(self, doc_names, batch_size=5):  # Giảm batch size xuống 5
+        super().__init__()
+        self.doc_names = doc_names
+        self.batch_size = batch_size
+        
+    def reconnect_word(self, max_retries=3):
+        """Thử kết nối lại Word application với retry"""
+        for i in range(max_retries):
+            try:
+                pythoncom.CoUninitialize()  # Giải phóng kết nối cũ
+                time.sleep(1)  # Đợi 1 giây
+                pythoncom.CoInitialize()
+                word_app = win32com.client.GetActiveObject("Word.Application")
+                if word_app:
+                    print(f"[DEBUG] ✓ Kết nối lại Word thành công (lần thử {i + 1})")
+                    # Thiết lập lại DisplayAlerts = False
+                    word_app.DisplayAlerts = False
+                    return word_app
+            except:
+                if i < max_retries - 1:
+                    print(f"[DEBUG] Không thể kết nối Word, thử lại lần {i + 2}")
+                    time.sleep(2)  # Tăng thời gian đợi
+        return None
+    
+    def get_document_by_name(self, word_app, doc_name, retries=3):
+        """Tìm document theo tên với số lần thử lại"""
+        for attempt in range(retries):
+            try:
+                # Làm mới danh sách documents
+                docs_count = word_app.Documents.Count
+                for j in range(docs_count):
+                    try:
+                        doc = word_app.Documents.Item(j + 1)
+                        if doc and doc.Name == doc_name:
+                            return doc
+                    except:
+                        continue
+                        
+                if attempt < retries - 1:
+                    print(f"[DEBUG] Không tìm thấy {doc_name}, thử lại lần {attempt + 2}")
+                    time.sleep(1)  # Đợi 1 giây trước khi thử lại
+                    
+            except:
+                if attempt < retries - 1:
+                    print(f"[DEBUG] Lỗi truy cập Documents, thử lại lần {attempt + 2}")
+                    word_app = self.reconnect_word()
+                    if not word_app:
+                        return None
+                    time.sleep(1)
+                    
+        return None
+    
+    def refresh_word_documents(self, word_app):
+        """Làm mới và lấy danh sách documents hiện tại"""
+        try:
+            return {doc.Name: doc for i in range(word_app.Documents.Count) 
+                   for doc in [word_app.Documents.Item(i + 1)]}
+        except:
+            return {}
+    
+    def run(self):
+        try:
+            total_docs = len(self.doc_names)
+            processed = 0
+            failed = 0
+            skipped = []  # Danh sách file bị bỏ qua
+            
+            # Xử lý theo batch
+            for i in range(0, total_docs, self.batch_size):
+                batch = self.doc_names[i:i + self.batch_size]
+                print(f"[DEBUG] Xử lý batch {i//self.batch_size + 1}/{(total_docs-1)//self.batch_size + 1}")
+                
+                # Khởi tạo COM mới cho mỗi batch
+                pythoncom.CoInitialize()
+                word_app = None
+                
+                try:
+                    word_app = win32com.client.GetActiveObject("Word.Application")
+                    if not word_app:
+                        raise Exception("Không thể kết nối Word")
+                    
+                    # Refresh và lấy danh sách documents hiện tại
+                    docs_dict = self.refresh_word_documents(word_app)
+                    
+                    # Xử lý từng file trong batch
+                    for doc_name in batch:
+                        try:
+                            # Kiểm tra document có tồn tại không
+                            doc = docs_dict.get(doc_name)
+                            if not doc:
+                                print(f"[DEBUG] Không tìm thấy file: {doc_name}")
+                                skipped.append(doc_name)
+                                continue
+                            
+                            if doc:
+                                print(f"[DEBUG] Đang xử lý file: {doc_name}")
+                                
+                                # Kiểm tra số trang
+                                total_pages = doc.ComputeStatistics(2)  # wdStatisticPages = 2
+                                print(f"[DEBUG] Tổng số trang: {total_pages}")
+                                
+                                if total_pages > 1:
+                                    retries = 3
+                                    for attempt in range(retries):
+                                        try:
+                                            # Kích hoạt document và đợi
+                                            doc.Activate()
+                                            time.sleep(1)  # Tăng thời gian đợi
+                                            
+                                            # Bước 1: Xóa từ trang 2 trở đi
+                                            word_app.Selection.GoTo(What=1, Which=1, Count=2)  # Đi đến trang 2
+                                            time.sleep(0.5)  # Tăng thời gian đợi
+                                            
+                                            start_pos = word_app.Selection.Start
+                                            delete_range = doc.Range(start_pos, doc.Content.End)
+                                            delete_range.Delete()
+                                            print(f"[DEBUG] ✓ Đã xóa từ trang 2 trở đi")
+                                            
+                                            # Đợi sau khi xóa
+                                            time.sleep(0.5)
+                                            
+                                            # Bước 2: Tìm và xử lý bảng ký tên
+                                            tables = doc.Tables
+                                            if tables.Count > 0:
+                                                tables_on_first_page = []
+                                                for table in tables:
+                                                    try:
+                                                        if table.Range.Information(3) == 1:
+                                                            tables_on_first_page.append(table)
+                                                    except:
+                                                        continue
+                                                
+                                                if tables_on_first_page:
+                                                    # Lấy bảng cuối cùng (bảng ký tên)
+                                                    signature_table = tables_on_first_page[-1]
+                                                    
+                                                    # Đặt con trỏ ở cuối bảng và đợi
+                                                    table_range = signature_table.Range
+                                                    word_app.Selection.SetRange(table_range.End, table_range.End)
+                                                    time.sleep(0.5)  # Tăng thời gian đợi
+                                                    
+                                                    # Xóa từ cuối bảng đến hết document
+                                                    word_app.Selection.EndKey(Unit=6, Extend=1)  # wdStory = 6
+                                                    word_app.Selection.Delete()
+                                                    print(f"[DEBUG] ✓ Đã xóa phần thừa sau bảng ký tên")
+                                            
+                                            # Nếu thành công thì thoát khỏi vòng lặp retry
+                                            break
+                                            
+                                        except Exception as e:
+                                            if "Call was rejected" in str(e):
+                                                if attempt < retries - 1:
+                                                    print(f"[DEBUG] ⚠️ Lỗi khi xóa trang (lần {attempt + 1}): {str(e)}")
+                                                    # Thử kết nối lại Word
+                                                    word_app = self.reconnect_word()
+                                                    if not word_app:
+                                                        raise Exception("Không thể kết nối lại Word")
+                                                    time.sleep(2)  # Đợi lâu hơn trước khi thử lại
+                                                else:
+                                                    print(f"[DEBUG] ❌ Không thể xóa trang sau {retries} lần thử")
+                                                    raise
+                                            else:
+                                                print(f"[DEBUG] ❌ Lỗi không xử lý được: {str(e)}")
+                                                raise
+                                
+                                # In trang đầu với retry khi gặp lỗi
+                                print(f"[DEBUG] Đang in file...")
+                                max_print_retries = 3
+                                for print_attempt in range(max_print_retries):
+                                    try:
+                                        # Thiết lập in ngầm để tránh thông báo
+                                        doc.Application.DisplayAlerts = False
+                                        
+                                        # In với background để bỏ qua thông báo margin
+                                        WD_PRINT_FROM_TO = 3  # wdPrintFromTo
+                                        doc.PrintOut(
+                                            Range=WD_PRINT_FROM_TO,
+                                            From=1,
+                                            To=1,
+                                            Background=True
+                                        )
+                                        
+                                        # Nếu in thành công thì thoát vòng lặp
+                                        break
+                                        
+                                    except Exception as print_error:
+                                        if "Call was rejected" in str(print_error):
+                                            if print_attempt < max_print_retries - 1:
+                                                print(f"[DEBUG] Lỗi in lần {print_attempt + 1}, thử lại...")
+                                                # Thử kết nối lại Word và doc
+                                                word_app = self.reconnect_word()
+                                                if not word_app:
+                                                    raise Exception("Không thể kết nối lại Word")
+                                                # Làm mới documents
+                                                docs_dict = self.refresh_word_documents(word_app)
+                                                doc = docs_dict.get(doc_name)
+                                                if not doc:
+                                                    raise Exception("Không thể tìm lại document")
+                                                time.sleep(1)  # Đợi trước khi thử lại
+                                            else:
+                                                raise
+                                        else:
+                                            raise
+                                processed += 1
+                                print(f"[DEBUG] ✓ Đã in file: {doc_name}")
+                            else:
+                                failed += 1
+                                print(f"[DEBUG] ✗ Không tìm thấy file: {doc_name}")
+                                
+                        except Exception as e:
+                            failed += 1
+                            print(f"[DEBUG] ✗ Lỗi in file {doc_name}: {str(e)}")
+                        finally:
+                            if doc:
+                                doc = None  # Giải phóng document
+                        
+                        # Cập nhật progress
+                        progress = int((processed + failed) * 100 / total_docs)
+                        self.progress.emit(progress)
+                
+                except Exception as e:
+                    print(f"[DEBUG] Lỗi xử lý batch: {str(e)}")
+                    # Đánh dấu các file còn lại trong batch là lỗi
+                    remaining = len([x for x in batch if x not in [doc.Name for doc in word_app.Documents]])
+                    failed += remaining
+                
+                finally:
+                    # Giải phóng COM sau mỗi batch
+                    pythoncom.CoUninitialize()
+            
+            # Tổng kết chi tiết
+            print("\n=== TỔNG KẾT IN PHIẾU ===")
+            print(f"Tổng số file: {total_docs}")
+            print(f"✓ Đã in thành công: {processed}")
+            print(f"✗ Lỗi khi in: {failed}")
+            if skipped:
+                print(f"⚠️ Không tìm thấy {len(skipped)} file:")
+                for doc_name in skipped:
+                    print(f"  - {doc_name}")
+            
+            # Thông báo tổng kết
+            if processed > 0:
+                msg = f"✅ Đã in xong {processed}/{total_docs} tài liệu"
+                if failed > 0:
+                    msg += f" ({failed} lỗi)"
+                if skipped:
+                    msg += f" ({len(skipped)} file không tìm thấy)"
+                self.finished.emit(msg)
+            else:
+                self.finished.emit(f"❌ Không in được tài liệu nào")
+            
+        except Exception as e:
+            self.finished.emit(f"❌ Lỗi hệ thống: {str(e)}")
+
+# Cập nhật phương thức print_first_pages trong WordProcessorApp
+def print_first_pages(self):
+    selected_files = []
+    for i in range(self.file_list.count()):
+        item = self.file_list.item(i)
+        if item.checkState() == Qt.Checked:
+            selected_files.append(item.text())
+    
+    if not selected_files:
+        QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn ít nhất một tài liệu!")
+        return
+        
+    # Thêm progress bar
+    self.setup_progress_bar()
+    
+    # Khởi chạy worker
+    self.print_worker = PrintWorker(selected_files)
+    self.print_worker.progress.connect(self.update_progress)
+    self.print_worker.finished.connect(self.on_print_finished)
+    self.print_worker.start()
+
+def on_print_finished(self, message):
+    QMessageBox.information(self, "Thông báo", message)
+    self.progress_bar.deleteLater()
+    self.progress_bar = None
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
-    # Thiết lập icon cho toàn bộ ứng dụng
-    icon = QIcon("icon.ico")
-    app.setWindowIcon(icon)
-    
-    # Thiết lập tên ứng dụng cho taskbar
-    # app.setApplicationName("QLVT Processor")
-    # app.setApplicationDisplayName("QLVT Processor")
-    
     window = WordProcessorApp()
     window.show()
     sys.exit(app.exec_())
