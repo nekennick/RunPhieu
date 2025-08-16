@@ -278,7 +278,7 @@ class WordProcessorApp(QWidget):
         button_layout.addWidget(self.save_as_button)
 
         # Thêm nút đóng toàn bộ phiếu
-        self.close_all_button = QPushButton("6.Đóng từng phiếu")
+        self.close_all_button = QPushButton("6.Đóng tất cả phiếu")
         self.close_all_button.clicked.connect(self.close_all_documents)
         button_layout.addWidget(self.close_all_button)
 
@@ -410,6 +410,12 @@ class WordProcessorApp(QWidget):
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
                 item.setCheckState(check_state)
                 self.file_list.addItem(item)
+        except pythoncom.com_error as e:
+            # Lỗi -2147221021 (MK_E_UNAVAILABLE) có nghĩa là Word chưa được mở
+            if e.hresult == -2147221021:
+                self.status_label.setText("Chưa tìm thấy file word nào đang mở")
+            else:
+                self.status_label.setText(f"Lỗi COM: {e}")
         except Exception as e:
             self.status_label.setText(f"Lỗi: {e}")
         finally:
@@ -893,11 +899,16 @@ class WordProcessorApp(QWidget):
         try:
             word_app = win32com.client.GetActiveObject("Word.Application")
             if word_app.Documents.Count > 0:
-                for i in range(word_app.Documents.Count):
-                    doc = word_app.Documents.Item(i + 1)
+                # Lặp cho đến khi không còn tài liệu nào
+                while word_app.Documents.Count > 0:
+                    doc = word_app.Documents.Item(1)  # Luôn lấy và đóng tài liệu đầu tiên
+                    doc_name = doc.Name
                     doc.Close(SaveChanges=False)
-                    print(f"[DEBUG] Đã đóng tài liệu: {doc.Name}")
-                self.status_label.setText("✅ Đã đóng tất cả các tài liệu Word đang mở.")
+                    print(f"[DEBUG] Đã đóng tài liệu: {doc_name}")
+                # Sau khi đóng hết, thoát ứng dụng Word
+                word_app.Quit()
+                print("[DEBUG] Đã thoát ứng dụng Word.")
+                self.status_label.setText("✅ Đã đóng tất cả tài liệu và thoát Word.")
             else:
                 self.status_label.setText("⚠️ Không có tài liệu Word nào đang mở để đóng.")
         except Exception as e:
