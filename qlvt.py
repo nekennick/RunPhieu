@@ -492,6 +492,12 @@ class WordProcessorApp(QWidget):
 
     def modify_document(self, doc):
         try:
+            # Xoá ký tự xuống dòng ở đầu tài liệu nếu có
+            start_range = doc.Range(0, 1)
+            if start_range.Text == '\r':
+                print("[DEBUG] Đã tìm thấy và xóa ký tự xuống dòng ở đầu tài liệu.")
+                start_range.Delete()
+
             # Lọc ra tất cả các bảng nằm ở trang đầu tiên (page 1)
             tables_on_first_page = [table for table in doc.Tables if table.Range.Information(3) == 1]
             print(f"[DEBUG] Số bảng trên trang đầu: {len(tables_on_first_page)}")
