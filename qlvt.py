@@ -250,6 +250,7 @@ class WordProcessorApp(QWidget):
         self.layout.addWidget(self.status_label)
 
         self.file_list = QListWidget()
+        self.file_list.itemClicked.connect(self.toggle_item_check_state)
         self.layout.addWidget(self.file_list)
 
         button_layout = QHBoxLayout()
@@ -284,8 +285,17 @@ class WordProcessorApp(QWidget):
         self.layout.addLayout(button_layout)
         self.setLayout(self.layout)
 
+        # Biến trạng thái để xử lý lần tải đầu tiên
+        self.is_initial_load = True
+
         # 🔄 GỌI NGAY khi khởi động để tự động tải danh sách tài liệu đang mở
         self.load_open_documents()
+
+        # Sau lần tải đầu tiên, các lần nhấn nút sau sẽ bỏ chọn
+        self.is_initial_load = False
+
+        # Trạng thái để bật/tắt chọn tất cả, bắt đầu bằng bỏ chọn (vì lần đầu đã chọn)
+        self.select_all_enabled = False
     
     def setup_progress_bar(self):
         """Tạo và cấu hình progress bar"""
@@ -381,6 +391,14 @@ class WordProcessorApp(QWidget):
 
     def load_open_documents(self):
         self.file_list.clear()
+
+        # Quyết định trạng thái check
+        if self.is_initial_load:
+            check_state = Qt.Checked
+        else:
+            check_state = Qt.Checked if self.select_all_enabled else Qt.Unchecked
+            self.select_all_enabled = not self.select_all_enabled
+
         pythoncom.CoInitialize()
         try:
             word_app = win32com.client.GetActiveObject("Word.Application")
@@ -390,12 +408,19 @@ class WordProcessorApp(QWidget):
                 item_text = doc.Name
                 item = QListWidgetItem(item_text)
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(Qt.Checked)  # Tự động check vào tất cả file
+                item.setCheckState(check_state)
                 self.file_list.addItem(item)
         except Exception as e:
             self.status_label.setText(f"Lỗi: {e}")
         finally:
             pythoncom.CoUninitialize()
+
+    def toggle_item_check_state(self, item):
+        """Đảo ngược trạng thái check của item khi được click"""
+        if item.checkState() == Qt.Checked:
+            item.setCheckState(Qt.Unchecked)
+        else:
+            item.setCheckState(Qt.Checked)
 
     def process_selected_files(self):
         selected_files = []
