@@ -214,7 +214,7 @@ class WordProcessorApp(QWidget):
         # Khởi tạo progress bar
         self.progress_bar = None
 
-        self.setWindowTitle(f"Xử lý phiếu hàng loạt {self.current_version} | www.khoatran.io.vn")
+        self.setWindowTitle(f"Công cụ xử lý và lưu trữ phiếu nhập xuất kho {self.current_version} | www.khoatran.io.vn")
         self.setGeometry(200, 200, 600, 400)  # Tăng kích thước cửa sổ mặc định
         
         # Thiết lập icon cho ứng dụng
@@ -316,104 +316,17 @@ class WordProcessorApp(QWidget):
 
     def _check_activation(self):
         """Kiểm tra trạng thái activation khi khởi động"""
-        try:
-            status = self.activation_manager.check_activation_status()
-            
-            if not status.get('activated', True):
-                # Hiển thị cảnh báo nhưng vẫn cho phép tiếp tục
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
-                msg.setWindowTitle("Cảnh báo")
-                msg.setText("⚠️ Không có kết nối đến server")
-                
-                # Thông báo chi tiết
-                details = ["Ứng dụng đang chạy ở chế độ ngoại tuyến với chức năng hạn chế.", ""]
-                details.append(status.get('message', 'Không thể kiểm tra trạng thái kích hoạt.'))
-                
-                # Thêm thông tin expiry date nếu có
-                expiry_date = status.get('expiry_date')
-                if expiry_date:
-                    details.append(f"\nNgày hết hạn: {expiry_date}")
-                
-                msg.setInformativeText("\n".join(details))
-                msg.setStandardButtons(QMessageBox.Ok)
-                msg.exec_()
-                
-                # Vẫn trả về True để tiếp tục chạy ứng dụng
-                return True
-            
-            return True
-            
-        except Exception as e:
-            print(f"[ACTIVATION] Lỗi kiểm tra activation: {e}")
-            # Hiển thị cảnh báo nhưng vẫn cho phép tiếp tục
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("Cảnh báo")
-            msg.setText("⚠️ Không thể kiểm tra trạng thái kích hoạt")
-            msg.setInformativeText("Ứng dụng sẽ chạy ở chế độ ngoại tuyến với chức năng hạn chế.")
-            msg.setDetailedText(f"Chi tiết lỗi: {str(e)}")
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
-            
-            # Vẫn trả về True để tiếp tục chạy ứng dụng
-            return True
+        # Luôn trả về True để bỏ qua kiểm tra kết nối mạng
+        return True
 
     def show_activation_status(self):
         """Hiển thị thông tin trạng thái activation"""
-        try:
-            status = self.activation_manager.check_activation_status()
-            
-            msg = QMessageBox()
-            if status.get('activated', True):
-                msg.setIcon(QMessageBox.Information)
-                msg.setWindowTitle("Trạng thái")
-                msg.setText("✅ Ứng dụng đang được kích hoạt")
-            else:
-                msg.setIcon(QMessageBox.Warning)
-                msg.setWindowTitle("Trạng thái")
-                msg.setText("⚠️ Ứng dụng đang chạy ở chế độ ngoại tuyến")
-            
-            # Thông tin chi tiết
-            details = []
-            
-            # Thêm thông báo trạng thái
-            if status.get('activated', True):
-                details.append("Trạng thái: Đã kích hoạt")
-            else:
-                details.append("Trạng thái: Chế độ ngoại tuyến (không có kết nối mạng)")
-            
-            # Thêm các thông tin khác nếu có
-            if 'expiry_date' in status and status['expiry_date']:
-                details.append(f"Ngày hết hạn: {status['expiry_date']}")
-            
-            if 'message' in status and status['message']:
-                details.append(f"Thông báo: {status['message']}")
-            
-            if 'last_updated' in status and status['last_updated']:
-                details.append(f"Cập nhật lần cuối: {status['last_updated']}")
-            elif not status.get('activated', True):
-                details.append("Lần cập nhật cuối: Không xác định (chế độ ngoại tuyến)")
-            
-            # Thêm hướng dẫn sử dụng khi offline
-            if not status.get('activated', True):
-                details.append("\nLưu ý: Một số tính năng có thể bị hạn chế khi sử dụng ở chế độ ngoại tuyến.")
-                details.append("Vui lòng kết nối mạng để sử dụng đầy đủ tính năng.")
-            
-            if details:
-                msg.setInformativeText('\n'.join(details))
-            
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
-            
-        except Exception as e:
-            # Hiển thị thông báo lỗi đơn giản hơn
-            QMessageBox.warning(
-                self, 
-                "Thông báo", 
-                "Không thể kiểm tra trạng thái kích hoạt. Ứng dụng sẽ chạy ở chế độ ngoại tuyến.\n\n"
-                "Lưu ý: Một số tính năng có thể bị hạn chế."
-            )
+        # Hiển thị thông báo đơn giản, không kiểm tra kết nối mạng
+        QMessageBox.information(
+            self,
+            "Trạng thái",
+            "✅ Ứng dụng đã sẵn sàng sử dụng"
+        )
 
     def load_open_documents(self):
         self.file_list.clear()
