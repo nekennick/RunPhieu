@@ -1,6 +1,7 @@
 import sys
 import pythoncom
 import win32com.client
+import win32print  # Thêm thư viện để làm việc với máy in
 import requests
 import subprocess
 import ctypes
@@ -9,9 +10,11 @@ import os
 import time
 import webbrowser
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QPushButton, QLabel,
-    QListWidget, QListWidgetItem, QCheckBox, QHBoxLayout,
-    QLineEdit, QFormLayout, QDialog, QDialogButtonBox, QFileDialog,
+    QApplication, QMainWindow, QPushButton, QVBoxLayout, 
+    QWidget, QFileDialog, QListWidget, QCheckBox, QLabel, 
+    QHBoxLayout, QMessageBox, QProgressBar, QListWidgetItem, 
+    QInputDialog, QLineEdit, QDialog, QDialogButtonBox, QFormLayout,
+    QComboBox,
     QScrollArea, QMessageBox, QProgressBar, QTextEdit
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
@@ -271,6 +274,37 @@ class WordProcessorApp(QWidget):
         self.print_button = QPushButton("4.In phiếu đã chọn")
         self.print_button.clicked.connect(self.print_first_pages)
         button_layout.addWidget(self.print_button)
+        
+        # Thêm dòng hiển thị thông tin máy in
+        printer_info_layout = QHBoxLayout()
+        printer_info_layout.addStretch()
+        
+        # Label hiển thị tên máy in
+        self.printer_label = QLabel()
+        self.printer_label.setStyleSheet("color: gray;")
+        self.update_printer_info()
+        
+        # Nút chọn máy in
+        select_printer_btn = QPushButton("🖨️")
+        select_printer_btn.setToolTip("Chọn máy in")
+        select_printer_btn.setFixedWidth(30)
+        select_printer_btn.setStyleSheet("QPushButton { font-size: 14px; }")
+        select_printer_btn.clicked.connect(self.select_printer)
+        
+        # Nút làm mới thông tin máy in
+        refresh_printer_btn = QPushButton("🔄")
+        refresh_printer_btn.setToolTip("Làm mới thông tin máy in")
+        refresh_printer_btn.setFixedWidth(30)
+        refresh_printer_btn.setStyleSheet("QPushButton { font-size: 14px; }")
+        refresh_printer_btn.clicked.connect(self.update_printer_info)
+        
+        printer_info_layout.addWidget(QLabel("Máy in:"))
+        printer_info_layout.addWidget(self.printer_label)
+        printer_info_layout.addWidget(select_printer_btn)
+        printer_info_layout.addWidget(refresh_printer_btn)
+        
+        # Thêm dòng thông tin máy in vào layout chính
+        self.layout.addLayout(printer_info_layout)
 
         # Thêm nút Save As (cuối cùng)
         self.save_as_button = QPushButton("5.Lưu tất cả file")
@@ -319,6 +353,77 @@ class WordProcessorApp(QWidget):
         # Luôn trả về True để bỏ qua kiểm tra kết nối mạng
         return True
 
+    def select_printer(self):
+        """Hiển thị hộp thoại chọn máy in"""
+        try:
+            # Lấy danh sách tất cả các máy in đã cài đặt
+            printers = [printer[2] for printer in win32print.EnumPrinters(2)]
+            
+            if not printers:
+                QMessageBox.warning(self, "Cảnh báo", "Không tìm thấy máy in nào!")
+                return
+            
+            # Lấy tên máy in hiện tại
+            current_printer = win32print.GetDefaultPrinter()
+            
+            # Tìm chỉ số của máy in hiện tại trong danh sách
+            current_index = 0
+            if current_printer in printers:
+                current_index = printers.index(current_printer)
+                
+            # Tạo hộp thoại chọn máy in
+            printer, ok = QInputDialog.getItem(
+                self, 
+                "Chọn máy in", 
+                "Chọn máy in mặc định:", 
+                printers, 
+                current=current_index,  # Chọn máy in hiện tại làm mặc định
+                editable=False
+            )
+            
+            if ok and printer:
+                # Chỉ cập nhật nếu chọn máy in khác
+                if printer != current_printer:
+                    # Đặt máy in đã chọn làm mặc định
+                    win32print.SetDefaultPrinter(printer)
+                    # Cập nhật thông tin hiển thị
+                    self.update_printer_info()
+                    QMessageBox.information(self, "Thành công", f"Đã chọn máy in: {printer}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi", f"Không thể chọn máy in: {str(e)}")
+    
+    def update_printer_info(self):
+        """Cập nhật thông tin máy in mặc định"""
+        try:
+            # Lấy tên máy in mặc định
+            default_printer = win32print.GetDefaultPrinter()
+            
+            # Lấy thông tin chi tiết về máy in
+            printer_info = win32print.GetPrinter(win32print.OpenPrinter(default_printer), 2)
+            printer_status = printer_info.get('Status', 0)
+            
+            # Xác định trạng thái máy in
+            status_text = ""
+            if printer_status == 0:
+                status_text = "(Sẵn sàng)"
+            else:
+                status_text = "(Đang bận)"
+                
+            # Cập nhật giao diện
+            self.printer_label.setText(f"{default_printer} {status_text}")
+            
+            # Đổi màu dựa trên trạng thái
+            if printer_status == 0:
+                self.printer_label.setStyleSheet("color: green;")
+            else:
+                self.printer_label.setStyleSheet("color: orange;")
+                
+        except Exception as e:
+            self.printer_label.setText("Không thể lấy thông tin máy in")
+            self.printer_label.setStyleSheet("color: red;")
+            print(f"Lỗi khi lấy thông tin máy in: {e}")
+    
     def show_activation_status(self):
         """Hiển thị thông tin trạng thái activation"""
         # Hiển thị thông báo đơn giản, không kiểm tra kết nối mạng
@@ -1751,14 +1856,22 @@ class PrintWorker(QThread):
                                         # Thiết lập in ngầm để tránh thông báo
                                         doc.Application.DisplayAlerts = False
                                         
+                                        # Đặt lại máy in mặc định cho Word
+                                        default_printer = win32print.GetDefaultPrinter()
+                                        word_app.ActivePrinter = default_printer
+                                        
                                         # In với background để bỏ qua thông báo margin
                                         WD_PRINT_FROM_TO = 3  # wdPrintFromTo
                                         doc.PrintOut(
                                             Range=WD_PRINT_FROM_TO,
                                             From=1,
                                             To=1,
-                                            Background=True
+                                            Background=True,
+                                            Item=2  # wdPrintDocumentContent = 2
                                         )
+                                        
+                                        # Đợi một chút để đảm bảo lệnh in được xử lý
+                                        time.sleep(0.5)
                                         
                                         # Nếu in thành công thì thoát vòng lặp
                                         break
@@ -1833,25 +1946,70 @@ class PrintWorker(QThread):
             self.finished.emit(f"❌ Lỗi hệ thống: {str(e)}")
 
 # Cập nhật phương thức print_first_pages trong WordProcessorApp
-def print_first_pages(self):
-    selected_files = []
-    for i in range(self.file_list.count()):
-        item = self.file_list.item(i)
-        if item.checkState() == Qt.Checked:
-            selected_files.append(item.text())
-    
-    if not selected_files:
-        QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn ít nhất một tài liệu!")
-        return
+    def print_first_pages(self):
+        selected_items = [self.file_list.item(i) for i in range(self.file_list.count()) 
+                        if self.file_list.item(i).checkState() == Qt.Checked]
         
-    # Thêm progress bar
-    self.setup_progress_bar()
-    
-    # Khởi chạy worker
-    self.print_worker = PrintWorker(selected_files)
-    self.print_worker.progress.connect(self.update_progress)
-    self.print_worker.finished.connect(self.on_print_finished)
-    self.print_worker.start()
+        if not selected_items:
+            QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn ít nhất một tài liệu để in.")
+            return
+        
+        try:
+            # Lấy thông tin máy in hiện tại
+            default_printer = win32print.GetDefaultPrinter()
+            
+            try:
+                printer_info = win32print.GetPrinter(win32print.OpenPrinter(default_printer), 2)
+                printer_status = printer_info.get('Status', 0)
+            except:
+                printer_status = 0  # Nếu không lấy được trạng thái, giả sử là sẵn sàng
+            
+            # Hiển thị thông tin máy in đã chọn
+            print(f"[DEBUG] Đã chọn máy in: {default_printer}")
+            print(f"[DEBUG] Trạng thái máy in: {'Sẵn sàng' if printer_status == 0 else 'Đang bận'}")
+            
+            # Kiểm tra trạng thái máy in
+            if printer_status != 0:
+                reply = QMessageBox.question(
+                    self, 
+                    "Cảnh báo", 
+                    f"Máy in '{default_printer}' đang bận hoặc gặp sự cố.\nBạn có muốn tiếp tục in không?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if reply == QMessageBox.No:
+                    return
+            
+            # Hiển thị hộp thoại xác nhận in
+            reply = QMessageBox.information(
+                self,
+                "Xác nhận in",
+                f"Chuẩn bị in {len(selected_items)} tài liệu.\n\n"
+                f"Máy in: {default_printer}\n"
+                f"Trạng thái: {'Sẵn sàng' if printer_status == 0 else 'Đang bận'}\n\n"
+                "Bạn có chắc chắn muốn tiếp tục?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Tạo worker và kết nối tín hiệu
+                self.worker = PrintWorker([item.text() for item in selected_items])
+                self.worker.finished.connect(self.on_print_finished)
+                
+                # Cập nhật trạng thái UI
+                self.status_label.setText(f"Đang in {len(selected_items)} tài liệu...")
+                
+                # Bắt đầu công việc in
+                self.worker.start()
+                
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Lỗi",
+                f"Không thể kết nối đến máy in. Vui lòng kiểm tra lại kết nối.\n\nChi tiết lỗi: {str(e)}"
+            )
 
 def on_print_finished(self, message):
     QMessageBox.information(self, "Thông báo", message)
