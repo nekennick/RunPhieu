@@ -151,57 +151,57 @@ class ReplaceWorker(QThread):
                 doc = word_app.Documents.Item(i + 1)
                 if doc.Name in self.doc_names:
                     try:
-                        # Lọc tất cả các bảng ở trang đầu tiên
-                        tables_on_first_page = [table for table in doc.Tables if table.Range.Information(3) == 1]
-                        print(f"[DEBUG] Tổng số bảng trên trang đầu: {len(tables_on_first_page)}")
-                        if tables_on_first_page:
-                            # Xử lý tất cả các bảng trên trang đầu tiên
-                            for table_idx, table in enumerate(tables_on_first_page):
-                                print(f"[DEBUG] ===== Đang xử lý Bảng {table_idx + 1} =====")
-                                print(f"[DEBUG] Số row trong bảng {table_idx + 1}: {table.Rows.Count}")
-                                print(f"[DEBUG] Số column trong bảng {table_idx + 1}: {table.Columns.Count}")
+                        print(f"[DEBUG] ===== Đang xử lý tài liệu: {doc.Name} =====")
+                        
+                        # Lấy range của trang đầu tiên
+                        # Cách 1: Từ đầu document đến đầu trang 2
+                        try:
+                            # Lấy vị trí bắt đầu của trang 2
+                            page2_start = doc.GoTo(What=1, Which=1, Count=2)  # What=1: wdGoToPage
+                            first_page_end = page2_start.Start
+                        except:
+                            # Nếu chỉ có 1 trang, lấy toàn bộ document
+                            first_page_end = doc.Content.End
+                        
+                        # Tạo range cho trang đầu tiên
+                        first_page_range = doc.Range(0, first_page_end)
+                        
+                        print(f"[DEBUG] Range trang đầu tiên: 0 - {first_page_end}")
+                        
+                        # Thay thế text trong range của trang đầu tiên
+                        for old, new in self.replacements:
+                            print(f"[DEBUG] Tìm và thay thế '{old}' -> '{new}'")
+                            
+                            # Thay thế bằng vòng lặp (vì Execute(Replace=2) không hoạt động với range giới hạn)
+                            count = 0
+                            max_iterations = 1000  # Giới hạn để tránh vòng lặp vô hạn
+                            
+                            while count < max_iterations:
+                                search_range = doc.Range(0, first_page_end)
+                                search_range.Find.ClearFormatting()
+                                search_range.Find.Text = old
+                                search_range.Find.Forward = True
+                                search_range.Find.Wrap = 0  # wdFindStop
+                                search_range.Find.MatchCase = False
+                                search_range.Find.MatchWholeWord = False
                                 
-                                try:
-                                    # Sử dụng Range.Cells để tránh lỗi với merged cells
-                                    for cell_idx, cell in enumerate(table.Range.Cells):
-                                        cell_text = cell.Range.Text.strip()
-                                        if cell_text:  # Chỉ in cell có nội dung
-                                            print(f"[DEBUG] Bảng{table_idx+1} - Cell {cell_idx+1}: '{cell_text}'")
-                                            
-                                            for old, new in self.replacements:
-                                                if old in cell_text:
-                                                    print(f"[DEBUG] ✓ Found '{old}' in Bảng{table_idx+1} - Cell {cell_idx+1}!")
-                                                    try:
-                                                        # Thay thế bằng cách tìm vị trí và thay thế trực tiếp
-                                                        cell_range = cell.Range
-                                                        start_pos = cell_range.Start
-                                                        end_pos = cell_range.End
-                                                        search_range = doc.Range(start_pos, end_pos)
-                                                        search_range.Find.Text = old
-                                                        if search_range.Find.Execute():
-                                                            search_range.Text = new
-                                                            print(f"[DEBUG] ✓ Replaced '{old}' with '{new}' in Bảng{table_idx+1} - Cell {cell_idx+1}")
-                                                        else:
-                                                            print(f"[DEBUG] ✗ Find.Execute() failed for '{old}' in Bảng{table_idx+1} - Cell {cell_idx+1}")
-                                                    except Exception as e:
-                                                        print(f"[DEBUG] ✗ Exception replacing '{old}' in Bảng{table_idx+1} - Cell {cell_idx+1}: {e}")
-                                                else:
-                                                    print(f"[DEBUG] - NOT found '{old}' in Bảng{table_idx+1} - Cell {cell_idx+1}")
-                                except Exception as e:
-                                    print(f"[DEBUG] Exception processing Bảng{table_idx+1}: {e}")
-                                    # Fallback: thử cách khác nếu có lỗi
-                                    try:
-                                        for old, new in self.replacements:
-                                            # Thay thế trong toàn bộ Range của bảng
-                                            table_range = table.Range
-                                            table_range.Find.Text = old
-                                            table_range.Find.Replacement.Text = new
-                                            if table_range.Find.Execute(Replace=2, Forward=True):
-                                                print(f"[DEBUG] ✓ Replaced '{old}' with '{new}' in Bảng{table_idx+1} (fallback method)")
-                                    except Exception as e2:
-                                        print(f"[DEBUG] Fallback also failed for Bảng{table_idx+1}: {e2}")
+                                if search_range.Find.Execute():
+                                    # Thay thế bằng cách gán trực tiếp
+                                    search_range.Text = new
+                                    count += 1
+                                else:
+                                    # Không tìm thấy nữa, thoát vòng lặp
+                                    break
+                            
+                            if count > 0:
+                                print(f"[DEBUG] ✓ Đã thay thế {count} lần xuất hiện của '{old}' thành '{new}'")
+                            else:
+                                print(f"[DEBUG] - Không tìm thấy '{old}' trong trang đầu tiên")
+                        
                     except Exception as e:
                         print(f"[DEBUG] Exception in replace: {e}")
+                        import traceback
+                        traceback.print_exc()
             self.finished.emit("✅ Đã thay thế xong các tài liệu được chọn.")
         except Exception as e:
             self.finished.emit(f"Lỗi thay thế: {e}")
@@ -685,15 +685,43 @@ class WordProcessorApp(QWidget):
             self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để in.")
             return
 
+        # Hỏi người dùng muốn in hay lưu PDF
+        msg_box = QMessageBox()
+        msg_box.setWindowTitle("Chọn hành động")
+        msg_box.setText("Bạn muốn in trang đầu tiên hay lưu thành file PDF?")
+        msg_box.setIcon(QMessageBox.Question)
+        
+        print_btn = msg_box.addButton("In ra máy in", QMessageBox.ActionRole)
+        save_pdf_btn = msg_box.addButton("Lưu thành PDF", QMessageBox.ActionRole)
+        cancel_btn = msg_box.addButton("Hủy", QMessageBox.RejectRole)
+        
+        msg_box.exec_()
+        
+        output_folder = None
+        action_mode = "print"  # Mặc định là in
+        
+        if msg_box.clickedButton() == save_pdf_btn:
+            # Chọn thư mục lưu PDF
+            output_folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu file PDF")
+            if not output_folder:
+                return
+            action_mode = "save_pdf"
+        elif msg_box.clickedButton() == cancel_btn:
+            return
+
         self.setup_progress_bar()
-        self.status_label.setText("⏳ Đang in trang đầu, vui lòng chờ...")
-        print(f"[DEBUG] Bắt đầu in {len(selected_files)} tài liệu")
+        if action_mode == "save_pdf":
+            self.status_label.setText("⏳ Đang lưu PDF trang đầu, vui lòng chờ...")
+        else:
+            self.status_label.setText("⏳ Đang in trang đầu, vui lòng chờ...")
+        print(f"[DEBUG] Bắt đầu xử lý {len(selected_files)} tài liệu - Mode: {action_mode}")
         
         # Khởi tạo và chạy worker
-        self.print_thread = PrintWorker(selected_files)
+        self.print_thread = PrintWorker(selected_files, output_folder=output_folder, action_mode=action_mode)
         self.print_thread.progress.connect(self.update_progress)
         self.print_thread.finished.connect(self.on_print_finished)
         self.print_thread.start()
+
 
     def on_print_finished(self, message):
         self.status_label.setText(message)
@@ -1325,78 +1353,7 @@ class SaveAsWorker(QThread):
             pythoncom.CoUninitialize()
 
 
-class PrintWorker(QThread):
-    finished = pyqtSignal(str)
-    def __init__(self, doc_names, parent=None):
-        super().__init__(parent)
-        self.doc_names = doc_names
 
-    def run(self):
-        import pythoncom
-        import win32com.client
-        pythoncom.CoInitialize()
-        try:
-            word_app = win32com.client.GetActiveObject("Word.Application")
-            printed_count = 0
-            for i in range(word_app.Documents.Count):
-                doc = word_app.Documents.Item(i + 1)
-                if doc.Name in self.doc_names:
-                    try:
-                        # In trang đầu tiên - xóa các trang khác, in
-                        print(f"[DEBUG] Document name: {doc.Name}")
-                        total_pages = doc.ComputeStatistics(2)  # wdStatisticPages = 2
-                        print(f"[DEBUG] Total pages: {total_pages}")
-                        
-                        if total_pages > 1:
-                            # Kích hoạt document này
-                            doc.Activate()
-                            
-                            # Bước 1: Xóa từ trang 2 trở đi (chức năng ban đầu)
-                            word_app.Selection.GoTo(What=1, Which=1, Count=2)  # Đi đến trang 2
-                            start_pos = word_app.Selection.Start
-                            delete_range = doc.Range(start_pos, doc.Content.End)
-                            delete_range.Delete()
-                            print(f"[DEBUG] Bước 1: Đã xóa từ trang 2 trở đi")
-                            
-                            # Bước 2: Thêm - Di chuyển con trỏ đến cuối bảng ký tên và nhấn Delete
-                            tables_on_first_page = [table for table in doc.Tables if table.Range.Information(3) == 1]
-                            if tables_on_first_page:
-                                # Lấy bảng cuối cùng (bảng ký tên)
-                                signature_table = tables_on_first_page[-1]
-                                
-                                # Đặt con trỏ ở cuối bảng ký tên (dòng cuối cùng, cột cuối cùng)
-                                last_row = signature_table.Rows.Count
-                                last_col = signature_table.Columns.Count
-                                
-                                # Đặt con trỏ ở sau bảng ký tên (bên ngoài bảng)
-                                table_range = signature_table.Range
-                                # Đặt con trỏ ở cuối bảng (sau bảng ký tên)
-                                word_app.Selection.SetRange(table_range.End, table_range.End)
-                                
-                                # Nhấn Delete để xóa từ vị trí này đến cuối document
-                                # Mô phỏng Ctrl+Shift+End để chọn từ vị trí con trỏ đến cuối document
-                                word_app.Selection.EndKey(Unit=6, Extend=1)  # wdStory = 6, Extend=1 để chọn
-                                # Xóa vùng đã chọn
-                                word_app.Selection.Delete()
-                                
-                                print(f"[DEBUG] Bước 2: Đã đặt con trỏ ở cuối bảng ký tên và nhấn Delete")
-                            else:
-                                print(f"[DEBUG] Bước 2: Không tìm thấy bảng ký tên để đặt con trỏ")
-                            
-                            print(f"[DEBUG] Hoàn thành cả 2 bước xóa trang")
-                        
-                        # In toàn bộ document (giờ chỉ còn trang 1)
-                        doc.PrintOut()
-                        
-                        printed_count += 1
-                        print(f"[DEBUG] Printed: {doc.Name}")
-                    except Exception as e:
-                        print(f"[DEBUG] Exception printing {doc.Name}: {e}")
-            self.finished.emit(f"✅ Đã in trang đầu của {printed_count} file.")
-        except Exception as e:
-            self.finished.emit(f"Lỗi in file: {e}")
-        finally:
-            pythoncom.CoUninitialize()
 
 
 class AutoUpdater:
@@ -1683,9 +1640,11 @@ class PrintWorker(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(str)
     
-    def __init__(self, doc_names, batch_size=5):  # Giảm batch size xuống 5
+    def __init__(self, doc_names, output_folder=None, action_mode="print", batch_size=5):
         super().__init__()
         self.doc_names = doc_names
+        self.output_folder = output_folder
+        self.action_mode = action_mode  # "print" hoặc "save_pdf"
         self.batch_size = batch_size
         
     def reconnect_word(self, max_retries=3):
@@ -1784,121 +1743,115 @@ class PrintWorker(QThread):
                                 total_pages = doc.ComputeStatistics(2)  # wdStatisticPages = 2
                                 print(f"[DEBUG] Tổng số trang: {total_pages}")
                                 
-                                if total_pages > 1:
-                                    retries = 3
-                                    for attempt in range(retries):
-                                        try:
-                                            # Kích hoạt document và đợi
-                                            doc.Activate()
-                                            time.sleep(1)  # Tăng thời gian đợi
-                                            
-                                            # Bước 1: Xóa từ trang 2 trở đi
-                                            word_app.Selection.GoTo(What=1, Which=1, Count=2)  # Đi đến trang 2
-                                            time.sleep(0.5)  # Tăng thời gian đợi
-                                            
-                                            start_pos = word_app.Selection.Start
-                                            delete_range = doc.Range(start_pos, doc.Content.End)
-                                            delete_range.Delete()
-                                            print(f"[DEBUG] ✓ Đã xóa từ trang 2 trở đi")
-                                            
-                                            # Đợi sau khi xóa
-                                            time.sleep(0.5)
-                                            
-                                            # Bước 2: Tìm và xử lý bảng ký tên
-                                            tables = doc.Tables
-                                            if tables.Count > 0:
-                                                tables_on_first_page = []
-                                                for table in tables:
-                                                    try:
-                                                        if table.Range.Information(3) == 1:
-                                                            tables_on_first_page.append(table)
-                                                    except:
-                                                        continue
-                                                
-                                                if tables_on_first_page:
-                                                    # Lấy bảng cuối cùng (bảng ký tên)
-                                                    signature_table = tables_on_first_page[-1]
-                                                    
-                                                    # Đặt con trỏ ở cuối bảng và đợi
-                                                    table_range = signature_table.Range
-                                                    word_app.Selection.SetRange(table_range.End, table_range.End)
-                                                    time.sleep(0.5)  # Tăng thời gian đợi
-                                                    
-                                                    # Xóa từ cuối bảng đến hết document
-                                                    word_app.Selection.EndKey(Unit=6, Extend=1)  # wdStory = 6
-                                                    word_app.Selection.Delete()
-                                                    print(f"[DEBUG] ✓ Đã xóa phần thừa sau bảng ký tên")
-                                            
-                                            # Nếu thành công thì thoát khỏi vòng lặp retry
-                                            break
-                                            
-                                        except Exception as e:
-                                            if "Call was rejected" in str(e):
-                                                if attempt < retries - 1:
-                                                    print(f"[DEBUG] ⚠️ Lỗi khi xóa trang (lần {attempt + 1}): {str(e)}")
-                                                    # Thử kết nối lại Word
-                                                    word_app = self.reconnect_word()
-                                                    if not word_app:
-                                                        raise Exception("Không thể kết nối lại Word")
-                                                    time.sleep(2)  # Đợi lâu hơn trước khi thử lại
-                                                else:
-                                                    print(f"[DEBUG] ❌ Không thể xóa trang sau {retries} lần thử")
-                                                    raise
-                                            else:
-                                                print(f"[DEBUG] ❌ Lỗi không xử lý được: {str(e)}")
-                                                raise
-                                
-                                # In trang đầu với retry khi gặp lỗi
-                                print(f"[DEBUG] Đang in file...")
-                                max_print_retries = 3
-                                for print_attempt in range(max_print_retries):
+                                if total_pages > 0:
                                     try:
-                                        # Thiết lập in ngầm để tránh thông báo
-                                        doc.Application.DisplayAlerts = False
+                                        # Kích hoạt document
+                                        doc.Activate()
+                                        time.sleep(0.5)  # Chờ một chút để đảm bảo document đã sẵn sàng
                                         
-                                        # Đặt lại máy in mặc định cho Word
+                                        # Lấy máy in mặc định
                                         default_printer = win32print.GetDefaultPrinter()
                                         word_app.ActivePrinter = default_printer
                                         
-                                        # In với background để bỏ qua thông báo margin
-                                        WD_PRINT_FROM_TO = 3  # wdPrintFromTo
-                                        doc.PrintOut(
-                                            Range=WD_PRINT_FROM_TO,
-                                            From=1,
-                                            To=1,
-                                            Background=True,
-                                            Item=2  # wdPrintDocumentContent = 2
-                                        )
+                                        # In chỉ trang đầu tiên
+                                        print("[DEBUG] Đang in trang đầu tiên...")
+                                        print(f"[DEBUG] Sử dụng máy in: {default_printer}")
                                         
-                                        # Đợi một chút để đảm bảo lệnh in được xử lý
-                                        time.sleep(0.5)
+                                        # In trực tiếp từ tài liệu gốc - chọn trang 1 rồi in selection
+                                        print("[DEBUG] Bắt đầu gửi lệnh in trang đầu tiên (bằng selection)...")
+                                        try:
+                                            # Lấy start của trang 1
+                                            start_range = doc.GoTo(What=1, Which=1, Count=1)
+                                            # Lấy start của trang 2 nếu tồn tại để làm end
+                                            if total_pages >= 2:
+                                                next_page = doc.GoTo(What=1, Which=1, Count=2)
+                                                end_pos = next_page.Start
+                                            else:
+                                                end_pos = doc.Content.End
+
+                                            # Export trang 1 ra PDF
+                                            import tempfile
+                                            import os as _os
+                                            
+                                            # Xác định đường dẫn lưu PDF
+                                            safe_name = ''.join(c for c in doc_name if c.isalnum() or c in (' ', '.', '_')).rstrip()
+                                            # Loại bỏ phần mở rộng .docx nếu có
+                                            if safe_name.lower().endswith('.docx'):
+                                                safe_name = safe_name[:-5]
+                                            elif safe_name.lower().endswith('.doc'):
+                                                safe_name = safe_name[:-4]
+                                            
+                                            if self.action_mode == "save_pdf" and self.output_folder:
+                                                # Lưu vào thư mục người dùng chọn
+                                                pdf_path = _os.path.join(self.output_folder, f"{safe_name}_trang1.pdf")
+                                            else:
+                                                # Lưu vào thư mục temp để in
+                                                temp_dir = tempfile.gettempdir()
+                                                pdf_path = _os.path.join(temp_dir, f"{safe_name}_page1.pdf")
+                                            
+                                            try:
+                                                print(f"[DEBUG] Export trang 1 sang PDF: {pdf_path}")
+                                                # ExportAsFixedFormat: ExportFormat=17 -> wdExportFormatPDF
+                                                # Range=3 -> wdExportFromTo (chỉ export các trang được chỉ định)
+                                                # Range=0 -> wdExportAllDocument (export toàn bộ)
+                                                doc.ExportAsFixedFormat(OutputFileName=pdf_path,
+                                                                         ExportFormat=17,
+                                                                         OpenAfterExport=False,
+                                                                         From=1,
+                                                                         To=1,
+                                                                         OptimizeFor=0,
+                                                                         Range=3)
+
+                                                if self.action_mode == "save_pdf":
+                                                    # Chế độ lưu PDF - không in, không xóa file
+                                                    print(f"[DEBUG] Đã lưu PDF: {pdf_path}")
+                                                else:
+                                                    # Chế độ in - gửi file PDF đến máy in
+                                                    print(f"[DEBUG] Gửi file PDF đến lệnh in hệ thống: {pdf_path}")
+                                                    try:
+                                                        # Thử in trực tiếp tới máy in mặc định bằng ShellExecute 'printto' nếu có
+                                                        try:
+                                                            import win32api
+                                                            import win32print as _win32print
+                                                            default_printer = _win32print.GetDefaultPrinter()
+                                                            # ShellExecute printto needs printer name in quotes
+                                                            cmd_printer = f'"{default_printer}"'
+                                                            print(f"[DEBUG] Thử ShellExecute 'printto' tới: {default_printer}")
+                                                            win32api.ShellExecute(0, 'printto', pdf_path, cmd_printer, '.', 0)
+                                                            print(f"[DEBUG] Đã gửi job in PDF bằng ShellExecute cho: {pdf_path}")
+                                                        except Exception as e_shell:
+                                                            # Fallback: startfile('print')
+                                                            try:
+                                                                _os.startfile(pdf_path, 'print')
+                                                                print(f"[DEBUG] Đã gửi job in PDF bằng startfile cho: {pdf_path}")
+                                                            except Exception as print_pdf_err:
+                                                                print(f"[DEBUG] Lỗi gửi in PDF (startfile): {print_pdf_err}")
+                                                    finally:
+                                                        # Xoá file tạm sau một thời gian ngắn (chỉ khi in, không xóa khi lưu PDF)
+                                                        try:
+                                                            time.sleep(2)
+                                                            if _os.path.exists(pdf_path):
+                                                                _os.remove(pdf_path)
+                                                                print(f"[DEBUG] Đã xóa file tạm: {pdf_path}")
+                                                        except Exception:
+                                                            pass
+
+                                            except Exception as pe:
+                                                print(f"[DEBUG] Exception exporting/printing PDF for {doc_name}: {pe}")
+
+                                        except Exception as pe:
+                                            print(f"[DEBUG] Exception printing selection for {doc_name}: {pe}")
                                         
-                                        # Nếu in thành công thì thoát vòng lặp
-                                        break
+                                        processed += 1
+                                        print(f"[DEBUG] ✓ Đã gửi lệnh in: {doc_name}")
                                         
                                     except Exception as print_error:
-                                        if "Call was rejected" in str(print_error):
-                                            if print_attempt < max_print_retries - 1:
-                                                print(f"[DEBUG] Lỗi in lần {print_attempt + 1}, thử lại...")
-                                                # Thử kết nối lại Word và doc
-                                                word_app = self.reconnect_word()
-                                                if not word_app:
-                                                    raise Exception("Không thể kết nối lại Word")
-                                                # Làm mới documents
-                                                docs_dict = self.refresh_word_documents(word_app)
-                                                doc = docs_dict.get(doc_name)
-                                                if not doc:
-                                                    raise Exception("Không thể tìm lại document")
-                                                time.sleep(1)  # Đợi trước khi thử lại
-                                            else:
-                                                raise
-                                        else:
-                                            raise
-                                processed += 1
-                                print(f"[DEBUG] ✓ Đã in file: {doc_name}")
-                            else:
-                                failed += 1
-                                print(f"[DEBUG] ✗ Không tìm thấy file: {doc_name}")
+                                        print(f"[DEBUG] Lỗi khi in: {str(print_error)}")
+                                        failed += 1
+                                        raise
+                                else:
+                                    print(f"[DEBUG] Tài liệu không có nội dung: {doc_name}")
+                                    skipped.append(doc_name)
                                 
                         except Exception as e:
                             failed += 1
@@ -1922,10 +1875,11 @@ class PrintWorker(QThread):
                     pythoncom.CoUninitialize()
             
             # Tổng kết chi tiết
-            print("\n=== TỔNG KẾT IN PHIẾU ===")
+            action_text = "LƯU PDF" if self.action_mode == "save_pdf" else "IN PHIẾU"
+            print(f"\n=== TỔNG KẾT {action_text} ===")
             print(f"Tổng số file: {total_docs}")
-            print(f"✓ Đã in thành công: {processed}")
-            print(f"✗ Lỗi khi in: {failed}")
+            print(f"✓ Đã xử lý thành công: {processed}")
+            print(f"✗ Lỗi khi xử lý: {failed}")
             if skipped:
                 print(f"⚠️ Không tìm thấy {len(skipped)} file:")
                 for doc_name in skipped:
@@ -1933,88 +1887,27 @@ class PrintWorker(QThread):
             
             # Thông báo tổng kết
             if processed > 0:
-                msg = f"✅ Đã in xong {processed}/{total_docs} tài liệu"
+                if self.action_mode == "save_pdf":
+                    msg = f"✅ Đã lưu PDF trang đầu của {processed}/{total_docs} tài liệu"
+                    if self.output_folder:
+                        msg += f"\nThư mục: {self.output_folder}"
+                else:
+                    msg = f"✅ Đã in xong {processed}/{total_docs} tài liệu"
+                
                 if failed > 0:
                     msg += f" ({failed} lỗi)"
                 if skipped:
                     msg += f" ({len(skipped)} file không tìm thấy)"
                 self.finished.emit(msg)
             else:
-                self.finished.emit(f"❌ Không in được tài liệu nào")
+                if self.action_mode == "save_pdf":
+                    self.finished.emit(f"❌ Không lưu được tài liệu nào")
+                else:
+                    self.finished.emit(f"❌ Không in được tài liệu nào")
             
         except Exception as e:
             self.finished.emit(f"❌ Lỗi hệ thống: {str(e)}")
 
-# Cập nhật phương thức print_first_pages trong WordProcessorApp
-    def print_first_pages(self):
-        selected_items = [self.file_list.item(i) for i in range(self.file_list.count()) 
-                        if self.file_list.item(i).checkState() == Qt.Checked]
-        
-        if not selected_items:
-            QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn ít nhất một tài liệu để in.")
-            return
-        
-        try:
-            # Lấy thông tin máy in hiện tại
-            default_printer = win32print.GetDefaultPrinter()
-            
-            try:
-                printer_info = win32print.GetPrinter(win32print.OpenPrinter(default_printer), 2)
-                printer_status = printer_info.get('Status', 0)
-            except:
-                printer_status = 0  # Nếu không lấy được trạng thái, giả sử là sẵn sàng
-            
-            # Hiển thị thông tin máy in đã chọn
-            print(f"[DEBUG] Đã chọn máy in: {default_printer}")
-            print(f"[DEBUG] Trạng thái máy in: {'Sẵn sàng' if printer_status == 0 else 'Đang bận'}")
-            
-            # Kiểm tra trạng thái máy in
-            if printer_status != 0:
-                reply = QMessageBox.question(
-                    self, 
-                    "Cảnh báo", 
-                    f"Máy in '{default_printer}' đang bận hoặc gặp sự cố.\nBạn có muốn tiếp tục in không?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
-                )
-                
-                if reply == QMessageBox.No:
-                    return
-            
-            # Hiển thị hộp thoại xác nhận in
-            reply = QMessageBox.information(
-                self,
-                "Xác nhận in",
-                f"Chuẩn bị in {len(selected_items)} tài liệu.\n\n"
-                f"Máy in: {default_printer}\n"
-                f"Trạng thái: {'Sẵn sàng' if printer_status == 0 else 'Đang bận'}\n\n"
-                "Bạn có chắc chắn muốn tiếp tục?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
-            
-            if reply == QMessageBox.Yes:
-                # Tạo worker và kết nối tín hiệu
-                self.worker = PrintWorker([item.text() for item in selected_items])
-                self.worker.finished.connect(self.on_print_finished)
-                
-                # Cập nhật trạng thái UI
-                self.status_label.setText(f"Đang in {len(selected_items)} tài liệu...")
-                
-                # Bắt đầu công việc in
-                self.worker.start()
-                
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Lỗi",
-                f"Không thể kết nối đến máy in. Vui lòng kiểm tra lại kết nối.\n\nChi tiết lỗi: {str(e)}"
-            )
-
-def on_print_finished(self, message):
-    QMessageBox.information(self, "Thông báo", message)
-    self.progress_bar.deleteLater()
-    self.progress_bar = None
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
