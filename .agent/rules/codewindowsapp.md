@@ -2,7 +2,7 @@
 trigger: always_on
 ---
 
-- Always output in English, say "Hi Boss Việt" every time you response.
+- Always output in English, say "Hi Anh Khoa" every time you response.
 - Use Python instead of bash script to do your work, run with python3 cli.
 - Use pnpm and pnpx instead of npm and npx.
 - Make sure you're generating files in the right place.

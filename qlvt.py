@@ -685,29 +685,18 @@ class WordProcessorApp(QWidget):
             self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để in.")
             return
 
-        # Hỏi người dùng muốn in hay lưu PDF
-        msg_box = QMessageBox()
-        msg_box.setWindowTitle("Chọn hành động")
-        msg_box.setText("Bạn muốn in trang đầu tiên hay lưu thành file PDF?")
-        msg_box.setIcon(QMessageBox.Question)
-        
-        print_btn = msg_box.addButton("In ra máy in", QMessageBox.ActionRole)
-        save_pdf_btn = msg_box.addButton("Lưu thành PDF", QMessageBox.ActionRole)
-        cancel_btn = msg_box.addButton("Hủy", QMessageBox.RejectRole)
-        
-        msg_box.exec_()
-        
-        output_folder = None
-        action_mode = "print"  # Mặc định là in
-        
-        if msg_box.clickedButton() == save_pdf_btn:
-            # Chọn thư mục lưu PDF
+        # Kiểm tra xem có giữ phím Shift không (để lưu PDF)
+        modifiers = QApplication.keyboardModifiers()
+        if modifiers == Qt.ShiftModifier:
+            # Giữ Shift = Lưu PDF
             output_folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu file PDF")
             if not output_folder:
                 return
             action_mode = "save_pdf"
-        elif msg_box.clickedButton() == cancel_btn:
-            return
+        else:
+            # Mặc định = In trực tiếp
+            output_folder = None
+            action_mode = "print"
 
         self.setup_progress_bar()
         if action_mode == "save_pdf":
@@ -1757,90 +1746,62 @@ class PrintWorker(QThread):
                                         print("[DEBUG] Đang in trang đầu tiên...")
                                         print(f"[DEBUG] Sử dụng máy in: {default_printer}")
                                         
-                                        # In trực tiếp từ tài liệu gốc - chọn trang 1 rồi in selection
-                                        print("[DEBUG] Bắt đầu gửi lệnh in trang đầu tiên (bằng selection)...")
+                                        # In trực tiếp trang đầu tiên
+                                        print("[DEBUG] Bắt đầu in trang đầu tiên...")
                                         try:
-                                            # Lấy start của trang 1
-                                            start_range = doc.GoTo(What=1, Which=1, Count=1)
-                                            # Lấy start của trang 2 nếu tồn tại để làm end
-                                            if total_pages >= 2:
-                                                next_page = doc.GoTo(What=1, Which=1, Count=2)
-                                                end_pos = next_page.Start
-                                            else:
-                                                end_pos = doc.Content.End
-
-                                            # Export trang 1 ra PDF
-                                            import tempfile
-                                            import os as _os
-                                            
-                                            # Xác định đường dẫn lưu PDF
-                                            safe_name = ''.join(c for c in doc_name if c.isalnum() or c in (' ', '.', '_')).rstrip()
-                                            # Loại bỏ phần mở rộng .docx nếu có
-                                            if safe_name.lower().endswith('.docx'):
-                                                safe_name = safe_name[:-5]
-                                            elif safe_name.lower().endswith('.doc'):
-                                                safe_name = safe_name[:-4]
-                                            
                                             if self.action_mode == "save_pdf" and self.output_folder:
-                                                # Lưu vào thư mục người dùng chọn
+                                                # Chế độ lưu PDF - export ra PDF
+                                                import os as _os
+                                                safe_name = ''.join(c for c in doc_name if c.isalnum() or c in (' ', '.', '_')).rstrip()
+                                                if safe_name.lower().endswith('.docx'):
+                                                    safe_name = safe_name[:-5]
+                                                elif safe_name.lower().endswith('.doc'):
+                                                    safe_name = safe_name[:-4]
+                                                elif safe_name.lower().endswith('.rtf'):
+                                                    safe_name = safe_name[:-4]
+                                                
                                                 pdf_path = _os.path.join(self.output_folder, f"{safe_name}_trang1.pdf")
-                                            else:
-                                                # Lưu vào thư mục temp để in
-                                                temp_dir = tempfile.gettempdir()
-                                                pdf_path = _os.path.join(temp_dir, f"{safe_name}_page1.pdf")
-                                            
-                                            try:
+                                                
                                                 print(f"[DEBUG] Export trang 1 sang PDF: {pdf_path}")
-                                                # ExportAsFixedFormat: ExportFormat=17 -> wdExportFormatPDF
-                                                # Range=3 -> wdExportFromTo (chỉ export các trang được chỉ định)
-                                                # Range=0 -> wdExportAllDocument (export toàn bộ)
-                                                doc.ExportAsFixedFormat(OutputFileName=pdf_path,
-                                                                         ExportFormat=17,
-                                                                         OpenAfterExport=False,
-                                                                         From=1,
-                                                                         To=1,
-                                                                         OptimizeFor=0,
-                                                                         Range=3)
-
-                                                if self.action_mode == "save_pdf":
-                                                    # Chế độ lưu PDF - không in, không xóa file
-                                                    print(f"[DEBUG] Đã lưu PDF: {pdf_path}")
-                                                else:
-                                                    # Chế độ in - gửi file PDF đến máy in
-                                                    print(f"[DEBUG] Gửi file PDF đến lệnh in hệ thống: {pdf_path}")
-                                                    try:
-                                                        # Thử in trực tiếp tới máy in mặc định bằng ShellExecute 'printto' nếu có
-                                                        try:
-                                                            import win32api
-                                                            import win32print as _win32print
-                                                            default_printer = _win32print.GetDefaultPrinter()
-                                                            # ShellExecute printto needs printer name in quotes
-                                                            cmd_printer = f'"{default_printer}"'
-                                                            print(f"[DEBUG] Thử ShellExecute 'printto' tới: {default_printer}")
-                                                            win32api.ShellExecute(0, 'printto', pdf_path, cmd_printer, '.', 0)
-                                                            print(f"[DEBUG] Đã gửi job in PDF bằng ShellExecute cho: {pdf_path}")
-                                                        except Exception as e_shell:
-                                                            # Fallback: startfile('print')
-                                                            try:
-                                                                _os.startfile(pdf_path, 'print')
-                                                                print(f"[DEBUG] Đã gửi job in PDF bằng startfile cho: {pdf_path}")
-                                                            except Exception as print_pdf_err:
-                                                                print(f"[DEBUG] Lỗi gửi in PDF (startfile): {print_pdf_err}")
-                                                    finally:
-                                                        # Xoá file tạm sau một thời gian ngắn (chỉ khi in, không xóa khi lưu PDF)
-                                                        try:
-                                                            time.sleep(2)
-                                                            if _os.path.exists(pdf_path):
-                                                                _os.remove(pdf_path)
-                                                                print(f"[DEBUG] Đã xóa file tạm: {pdf_path}")
-                                                        except Exception:
-                                                            pass
-
-                                            except Exception as pe:
-                                                print(f"[DEBUG] Exception exporting/printing PDF for {doc_name}: {pe}")
-
+                                                doc.ExportAsFixedFormat(
+                                                    OutputFileName=pdf_path,
+                                                    ExportFormat=17,  # wdExportFormatPDF
+                                                    OpenAfterExport=False,
+                                                    From=1,
+                                                    To=1,
+                                                    OptimizeFor=0,
+                                                    Range=3  # wdExportFromTo
+                                                )
+                                                print(f"[DEBUG] Đã lưu PDF: {pdf_path}")
+                                            else:
+                                                # Chế độ in - in trực tiếp ra máy in
+                                                print(f"[DEBUG] In trực tiếp trang đầu tiên ra máy in...")
+                                                
+                                                # Lấy máy in mặc định
+                                                default_printer = win32print.GetDefaultPrinter()
+                                                print(f"[DEBUG] Máy in: {default_printer}")
+                                                
+                                                # Đặt máy in cho document
+                                                word_app.ActivePrinter = default_printer
+                                                
+                                                # In chỉ trang 1 - giống VBA
+                                                # PrintOut(Background, Append, Range, OutputFileName, From, To, ...)
+                                                # Range=3: wdPrintFromTo
+                                                print(f"[DEBUG] Gọi PrintOut với Range=3, From=1, To=1")
+                                                doc.PrintOut(
+                                                    False,  # Background
+                                                    False,  # Append  
+                                                    3,      # Range = wdPrintFromTo
+                                                    "",     # OutputFileName
+                                                    "1",    # From
+                                                    "1"     # To
+                                                )
+                                                print(f"[DEBUG] Đã gửi lệnh in trang 1 ra máy in")
+                                            
                                         except Exception as pe:
-                                            print(f"[DEBUG] Exception printing selection for {doc_name}: {pe}")
+                                            print(f"[DEBUG] Exception printing for {doc_name}: {pe}")
+                                            import traceback
+                                            traceback.print_exc()
                                         
                                         processed += 1
                                         print(f"[DEBUG] ✓ Đã gửi lệnh in: {doc_name}")
