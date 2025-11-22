@@ -134,12 +134,187 @@ class ActivationManager:
             "last_updated": "2024-01-15T10:30:00Z"
         }
 
-class ReplaceWorker(QThread):
+class CombinedWorker(QThread):
     finished = pyqtSignal(str)
+    progress = pyqtSignal(int)
+    
     def __init__(self, doc_names, replacements, parent=None):
         super().__init__(parent)
         self.doc_names = doc_names
         self.replacements = replacements
+
+    def extract_ho_ten(self, text):
+        """Trích xuất họ tên từ text, loại bỏ các thông tin khác"""
+        try:
+            # Loại bỏ các thông tin phía sau họ tên
+            # Cắt đến dấu xuống dòng đầu tiên
+            if '\r' in text:
+                text = text.split('\r')[0].strip()
+            elif '\n' in text:
+                text = text.split('\n')[0].strip()
+            
+            # Loại bỏ các thông tin như "Đơn vị nhập:", "Đơn vị xuất:", v.v.
+            # Tìm các từ khóa có thể xuất hiện sau họ tên
+            keywords_to_remove = [
+                "Đơn vị nhập:"
+            ]
+            
+            for keyword in keywords_to_remove:
+                if keyword in text:
+                    text = text.split(keyword)[0].strip()
+                    break
+            
+            # Loại bỏ các ký tự đặc biệt cuối
+            text = text.rstrip('.,;:!?')
+            
+            return text if text else None
+        except Exception as e:
+            print(f"[DEBUG] Lỗi trích xuất họ tên: {e}")
+            return None
+
+    def find_ho_ten_nguoi_hang(self, doc):
+        """Tìm họ tên người nhận/giao hàng trong document"""
+        try:
+            print(f"[DEBUG] Bắt đầu tìm họ tên người nhận/giao hàng...")
+            # Tìm trong tất cả các bảng
+            for table_idx, table in enumerate(doc.Tables):
+                try:
+                    # Sử dụng Range.Cells để tránh lỗi với merged cells
+                    for cell_idx, cell in enumerate(table.Range.Cells):
+                        cell_text = cell.Range.Text.strip()
+                        
+                        # Tìm "Họ và tên người nhận hàng:"
+                        if "Họ và tên người nhận hàng:" in cell_text:
+                            parts = cell_text.split("Họ và tên người nhận hàng:")
+                            if len(parts) > 1:
+                                ho_ten_part = parts[1].strip()
+                                ho_ten = self.extract_ho_ten(ho_ten_part)
+                                if ho_ten:
+                                    print(f"[DEBUG] Trích xuất được họ tên người nhận: '{ho_ten}'")
+                                    return ho_ten
+                        # Tìm "Họ và tên người giao hàng:"
+                        elif "Họ và tên người giao hàng:" in cell_text:
+                            parts = cell_text.split("Họ và tên người giao hàng:")
+                            if len(parts) > 1:
+                                ho_ten_part = parts[1].strip()
+                                ho_ten = self.extract_ho_ten(ho_ten_part)
+                                if ho_ten:
+                                    print(f"[DEBUG] Trích xuất được họ tên người giao: '{ho_ten}'")
+                                    return ho_ten
+                except Exception as e:
+                    print(f"[DEBUG] Lỗi xử lý bảng {table_idx+1}: {e}")
+                    # Fallback: thử cách khác nếu có lỗi
+                    try:
+                        table_range = table.Range
+                        table_text = table_range.Text
+                        
+                        # Tìm trong toàn bộ text của bảng
+                        if "Họ và tên người nhận hàng:" in table_text:
+                            parts = table_text.split("Họ và tên người nhận hàng:")
+                            if len(parts) > 1:
+                                ho_ten_part = parts[1].strip()
+                                ho_ten = self.extract_ho_ten(ho_ten_part)
+                                if ho_ten:
+                                    return ho_ten
+                        elif "Họ và tên người giao hàng:" in table_text:
+                            parts = table_text.split("Họ và tên người giao hàng:")
+                            if len(parts) > 1:
+                                ho_ten_part = parts[1].strip()
+                                ho_ten = self.extract_ho_ten(ho_ten_part)
+                                if ho_ten:
+                                    return ho_ten
+                    except Exception as e2:
+                        print(f"[DEBUG] Fallback cũng thất bại cho bảng {table_idx+1}: {e2}")
+            
+            print(f"[DEBUG] Không tìm thấy họ tên người nhận/giao hàng trong bất kỳ bảng nào")
+            return None
+        except Exception as e:
+            print(f"[DEBUG] Lỗi tìm họ tên: {e}")
+            return None
+
+    def modify_document(self, doc):
+        """Xử lý khung tên: thêm dòng, điền tên"""
+        try:
+            # Xoá ký tự xuống dòng ở đầu tài liệu nếu có
+            start_range = doc.Range(0, 1)
+            if start_range.Text == '\r':
+                start_range.Delete()
+
+            # Lọc ra tất cả các bảng nằm ở trang đầu tiên (page 1)
+            tables_on_first_page = [table for table in doc.Tables if table.Range.Information(3) == 1]
+            if tables_on_first_page:
+                # Chỉ lấy bảng CUỐI CÙNG ở trang đầu tiên (bảng ký tên)
+                table = tables_on_first_page[-1]
+                rows = table.Rows.Count
+                if rows == 4:
+                    # ⚠️ CHÈN 1 DÒNG vào giữa dòng 3 và 4
+                    table.Rows.Add(BeforeRow=table.Rows(4))
+                
+                # ✅ Tiếp tục xử lý nội dung sau khi thêm dòng
+                try:
+                    # Tìm ô chứa "VÕ THANH ĐIỀN" ở hàng cuối cùng
+                    last_row = table.Rows.Count
+                    target_cell = None
+                    for col in range(1, table.Columns.Count + 1):
+                        cell_text = table.Cell(last_row, col).Range.Text.strip()
+                        if "VÕ THANH ĐIỀN" in cell_text:
+                            # Lưu lại ô bên phải để điền họ tên
+                            if col < table.Columns.Count:
+                                target_cell = table.Cell(last_row, col + 1)
+                            break
+                    
+                    # Tìm và xóa "PHAN CÔNG HUY" trong cùng hàng cuối
+                    for col in range(1, table.Columns.Count + 1):
+                        cell_text = table.Cell(last_row, col).Range.Text.strip()
+                        if "PHAN CÔNG HUY" in cell_text:
+                            # Xóa nội dung "PHAN CÔNG HUY" khỏi ô
+                            cell = table.Cell(last_row, col)
+                            cell.Range.Text = ""
+                            break
+                    
+                    # Tìm họ tên người nhận/giao hàng và điền vào ô bên phải của "VÕ THANH ĐIỀN"
+                    if target_cell:
+                        ho_ten = self.find_ho_ten_nguoi_hang(doc)
+                        if ho_ten:
+                            target_cell.Range.Text = ho_ten
+                            print(f"[DEBUG] Đã điền họ tên: {ho_ten}")
+                except:
+                    pass
+        except Exception as e:
+            print(f"[DEBUG] Exception in modify_document: {e}")
+
+    def replace_text(self, doc):
+        """Thay thế văn bản trong trang đầu tiên"""
+        try:
+            # Lấy range của trang đầu tiên
+            try:
+                page2_start = doc.GoTo(What=1, Which=1, Count=2)
+                first_page_end = page2_start.Start
+            except:
+                first_page_end = doc.Content.End
+            
+            # Thay thế text trong range của trang đầu tiên
+            for old, new in self.replacements:
+                # Thay thế bằng vòng lặp
+                count = 0
+                max_iterations = 1000
+                
+                while count < max_iterations:
+                    search_range = doc.Range(0, first_page_end)
+                    search_range.Find.ClearFormatting()
+                    search_range.Find.Text = old
+                    search_range.Find.Forward = True
+                    search_range.Find.Wrap = 0  # wdFindStop
+                    search_range.Find.MatchCase = False
+                    search_range.Find.MatchWholeWord = False
+                    
+                    if search_range.Find.Execute():
+                        search_range.Text = new
+                        count += 1
+                    else:
+                        break
+        except Exception as e:
+            print(f"[DEBUG] Exception in replace_text: {e}")
 
     def run(self):
         import pythoncom
@@ -147,66 +322,36 @@ class ReplaceWorker(QThread):
         pythoncom.CoInitialize()
         try:
             word_app = win32com.client.GetActiveObject("Word.Application")
+            total_files = len(self.doc_names)
+            processed_count = 0
+            
             for i in range(word_app.Documents.Count):
                 doc = word_app.Documents.Item(i + 1)
                 if doc.Name in self.doc_names:
                     try:
                         print(f"[DEBUG] ===== Đang xử lý tài liệu: {doc.Name} =====")
                         
-                        # Lấy range của trang đầu tiên
-                        # Cách 1: Từ đầu document đến đầu trang 2
-                        try:
-                            # Lấy vị trí bắt đầu của trang 2
-                            page2_start = doc.GoTo(What=1, Which=1, Count=2)  # What=1: wdGoToPage
-                            first_page_end = page2_start.Start
-                        except:
-                            # Nếu chỉ có 1 trang, lấy toàn bộ document
-                            first_page_end = doc.Content.End
+                        # 1. Xử lý khung tên (Process Title Block)
+                        self.modify_document(doc)
                         
-                        # Tạo range cho trang đầu tiên
-                        first_page_range = doc.Range(0, first_page_end)
+                        # 2. Thay thế văn bản (Replace Name)
+                        if self.replacements:
+                            self.replace_text(doc)
                         
-                        print(f"[DEBUG] Range trang đầu tiên: 0 - {first_page_end}")
-                        
-                        # Thay thế text trong range của trang đầu tiên
-                        for old, new in self.replacements:
-                            print(f"[DEBUG] Tìm và thay thế '{old}' -> '{new}'")
-                            
-                            # Thay thế bằng vòng lặp (vì Execute(Replace=2) không hoạt động với range giới hạn)
-                            count = 0
-                            max_iterations = 1000  # Giới hạn để tránh vòng lặp vô hạn
-                            
-                            while count < max_iterations:
-                                search_range = doc.Range(0, first_page_end)
-                                search_range.Find.ClearFormatting()
-                                search_range.Find.Text = old
-                                search_range.Find.Forward = True
-                                search_range.Find.Wrap = 0  # wdFindStop
-                                search_range.Find.MatchCase = False
-                                search_range.Find.MatchWholeWord = False
-                                
-                                if search_range.Find.Execute():
-                                    # Thay thế bằng cách gán trực tiếp
-                                    search_range.Text = new
-                                    count += 1
-                                else:
-                                    # Không tìm thấy nữa, thoát vòng lặp
-                                    break
-                            
-                            if count > 0:
-                                print(f"[DEBUG] ✓ Đã thay thế {count} lần xuất hiện của '{old}' thành '{new}'")
-                            else:
-                                print(f"[DEBUG] - Không tìm thấy '{old}' trong trang đầu tiên")
+                        processed_count += 1
+                        self.progress.emit(processed_count)
                         
                     except Exception as e:
-                        print(f"[DEBUG] Exception in replace: {e}")
+                        print(f"[DEBUG] Lỗi xử lý file {doc.Name}: {e}")
                         import traceback
                         traceback.print_exc()
-            self.finished.emit("✅ Đã thay thế xong các tài liệu được chọn.")
+            
+            self.finished.emit(f"✅ Đã xử lý xong {processed_count}/{total_files} tài liệu.")
         except Exception as e:
-            self.finished.emit(f"Lỗi thay thế: {e}")
+            self.finished.emit(f"Lỗi xử lý: {e}")
         finally:
             pythoncom.CoUninitialize()
+
 
 class WordProcessorApp(QWidget):
     def __init__(self):
@@ -261,14 +406,10 @@ class WordProcessorApp(QWidget):
         self.refresh_button.clicked.connect(self.load_open_documents)
         button_layout.addWidget(self.refresh_button)
 
-        self.process_button = QPushButton("2.Xử lý khung tên")
-        self.process_button.clicked.connect(self.process_selected_files)
-        button_layout.addWidget(self.process_button)
-
-        # Thêm nút Replace
-        self.replace_button = QPushButton("3.Thay tên")
-        self.replace_button.clicked.connect(self.replace_selected_files)
-        button_layout.addWidget(self.replace_button)
+        # Nút Xử lý (Gộp tính năng Xử lý khung tên và Thay tên)
+        self.combined_button = QPushButton("2.Xử lý khung tên")
+        self.combined_button.clicked.connect(self.process_and_replace)
+        button_layout.addWidget(self.combined_button)
 
         # Thêm nút In trang đầu
         self.print_button = QPushButton("4.In phiếu đã chọn")
@@ -291,22 +432,13 @@ class WordProcessorApp(QWidget):
         select_printer_btn.setStyleSheet("QPushButton { font-size: 14px; }")
         select_printer_btn.clicked.connect(self.select_printer)
         
-        # Nút làm mới thông tin máy in
-        refresh_printer_btn = QPushButton("🔄")
-        refresh_printer_btn.setToolTip("Làm mới thông tin máy in")
-        refresh_printer_btn.setFixedWidth(30)
-        refresh_printer_btn.setStyleSheet("QPushButton { font-size: 14px; }")
-        refresh_printer_btn.clicked.connect(self.update_printer_info)
-        
         printer_info_layout.addWidget(QLabel("Máy in:"))
         printer_info_layout.addWidget(self.printer_label)
         printer_info_layout.addWidget(select_printer_btn)
-        printer_info_layout.addWidget(refresh_printer_btn)
         
         # Thêm dòng thông tin máy in vào layout chính
         self.layout.addLayout(printer_info_layout)
 
-        # Thêm nút Save As (cuối cùng)
         self.save_as_button = QPushButton("5.Lưu tất cả file")
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
@@ -472,183 +604,37 @@ class WordProcessorApp(QWidget):
         else:
             item.setCheckState(Qt.Checked)
 
-    def process_selected_files(self):
-        selected_files = []
-        for i in range(self.file_list.count()):
-            item = self.file_list.item(i)
-            if item.checkState() == Qt.Checked:
-                selected_files.append(item.text())
-
-        if not selected_files:
-            self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để xử lý.")
-            return
-
-        # Hiển thị progress bar
-        self.progress_bar = QProgressBar()
-        self.layout.addWidget(self.progress_bar)
-        self.progress_bar.setMaximum(len(selected_files))
-        
-        total_files = len(selected_files)
-        processed_files = 0
-        failed_files = []
-        batch_size = 10  # Xử lý mỗi lần 10 file
-        
-        try:
-            # Xử lý theo batch để tránh quá tải
-            for i in range(0, total_files, batch_size):
-                batch = selected_files[i:i + batch_size]
-                pythoncom.CoInitialize()
-                try:
-                    word_app = win32com.client.GetActiveObject("Word.Application")
-                    for doc_name in batch:
-                        try:
-                            # Tìm document theo tên
-                            doc = None
-                            for j in range(word_app.Documents.Count):
-                                current_doc = word_app.Documents.Item(j + 1)
-                                if current_doc.Name == doc_name:
-                                    doc = current_doc
-                                    break
-                            
-                            if doc:
-                                print(f"[DEBUG] Đang xử lý file: {doc_name}")
-                                self.modify_document(doc)
-                                processed_files += 1
-                                print(f"[DEBUG] ✓ Đã xử lý thành công: {doc_name}")
-                            else:
-                                print(f"[DEBUG] ✗ Không tìm thấy file: {doc_name}")
-                                failed_files.append(f"{doc_name} (không tìm thấy)")
-                            
-                        except Exception as e:
-                            print(f"[DEBUG] ✗ Lỗi xử lý file {doc_name}: {str(e)}")
-                            failed_files.append(f"{doc_name} (lỗi: {str(e)})")
-                        
-                        # Cập nhật progress bar
-                        self.progress_bar.setValue(processed_files)
-                        QApplication.processEvents()  # Cập nhật UI
-                        
-                except Exception as e:
-                    print(f"[DEBUG] Lỗi batch {i//batch_size + 1}: {str(e)}")
-                finally:
-                    pythoncom.CoUninitialize()
-            
-            # Hiển thị kết quả
-            if failed_files:
-                error_msg = "\\n".join(failed_files)
-                self.status_label.setText(f"⚠️ Đã xử lý {processed_files}/{total_files} file. "
-                                      f"{len(failed_files)} file lỗi - xem chi tiết trong log")
-                print(f"[DEBUG] Các file lỗi:\\n{error_msg}")
-            else:
-                self.status_label.setText(f"✅ Đã xử lý thành công {processed_files}/{total_files} file.")
-            
-        except Exception as e:
-            self.status_label.setText(f"Lỗi xử lý: {e}")
-        finally:
-            # Xóa progress bar
-            if hasattr(self, 'progress_bar'):
-                self.progress_bar.deleteLater()
-                self.progress_bar = None
-
-    def replace_in_first_page(self, doc, replacements):
-        try:
-            for para in doc.Paragraphs:
-                if para.Range.Information(3) == 1:  # Trang đầu tiên
-                    for old, new in replacements:
-                        para.Range.Text = para.Range.Text.replace(old, new)
-            # Thay thế trong bảng ở trang đầu tiên (nếu có)
-            for table in doc.Tables:
-                if table.Range.Information(3) == 1:
-                    for row in table.Rows:
-                        for cell in row.Cells:
-                            for old, new in replacements:
-                                cell.Range.Text = cell.Range.Text.replace(old, new)
-        except Exception as e:
-            pass
-
-    def modify_document(self, doc):
-        try:
-            # Xoá ký tự xuống dòng ở đầu tài liệu nếu có
-            start_range = doc.Range(0, 1)
-            if start_range.Text == '\r':
-                print("[DEBUG] Đã tìm thấy và xóa ký tự xuống dòng ở đầu tài liệu.")
-                start_range.Delete()
-
-            # Lọc ra tất cả các bảng nằm ở trang đầu tiên (page 1)
-            tables_on_first_page = [table for table in doc.Tables if table.Range.Information(3) == 1]
-            print(f"[DEBUG] Số bảng trên trang đầu: {len(tables_on_first_page)}")
-            if tables_on_first_page:
-                # Chỉ lấy bảng CUỐI CÙNG ở trang đầu tiên (bảng ký tên)
-                table = tables_on_first_page[-1]
-                rows = table.Rows.Count
-                print(f"[DEBUG] Số row trước khi chèn: {rows}")
-                if rows == 4:
-                    # ⚠️ CHÈN 1 DÒNG vào giữa dòng 3 và 4
-                    table.Rows.Add(BeforeRow=table.Rows(4))
-                    print(f"[DEBUG] Đã chèn 1 row, số row sau khi chèn: {table.Rows.Count}")
-                
-                # ✅ Tiếp tục xử lý nội dung sau khi thêm dòng
-                try:
-                    # KHÔNG xoá "NGƯỜI LẬP PHIẾU" - giữ nguyên
-                    # KHÔNG gộp ô (1,3) và (1,4) - giữ nguyên
-                    
-                    # Tìm ô chứa "VÕ THANH ĐIỀN" ở hàng cuối cùng
-                    last_row = table.Rows.Count
-                    target_cell = None
-                    for col in range(1, table.Columns.Count + 1):
-                        cell_text = table.Cell(last_row, col).Range.Text.strip()
-                        if "VÕ THANH ĐIỀN" in cell_text:
-                            # Lưu lại ô bên phải để điền họ tên
-                            if col < table.Columns.Count:
-                                target_cell = table.Cell(last_row, col + 1)
-                                print(f"[DEBUG] Đã tìm thấy 'VÕ THANH ĐIỀN' ở ô ({last_row}, {col}), sẽ điền họ tên vào ô ({last_row}, {col + 1})")
-                            break
-                    
-                    # Tìm và xóa "PHAN CÔNG HUY" trong cùng hàng cuối
-                    for col in range(1, table.Columns.Count + 1):
-                        cell_text = table.Cell(last_row, col).Range.Text.strip()
-                        if "PHAN CÔNG HUY" in cell_text:
-                            # Xóa nội dung "PHAN CÔNG HUY" khỏi ô
-                            cell = table.Cell(last_row, col)
-                            cell.Range.Text = ""
-                            print(f"[DEBUG] Đã xóa 'PHAN CÔNG HUY' khỏi ô ({last_row}, {col})")
-                            break
-                    
-                    # Tìm họ tên người nhận/giao hàng và điền vào ô bên phải của "VÕ THANH ĐIỀN"
-                    if target_cell:
-                        print(f"[DEBUG] Đã tìm thấy ô đích để điền họ tên")
-                        ho_ten = self.find_ho_ten_nguoi_hang(doc)
-                        if ho_ten:
-                            target_cell.Range.Text = ho_ten
-                            print(f"[DEBUG] Đã điền họ tên: {ho_ten}")
-                        else:
-                            print(f"[DEBUG] Không tìm thấy họ tên người nhận/giao hàng")
-                    else:
-                        print(f"[DEBUG] Không tìm thấy ô đích (ô bên phải của VÕ THANH ĐIỀN)")
-                
-                except:
-                    pass
-        except Exception as e:
-            print(f"[DEBUG] Exception in modify_document: {e}")
-
-    def replace_selected_files(self):
+    def process_and_replace(self):
+        """Xử lý gộp: Thay thế văn bản -> Xử lý khung tên"""
+        # 1. Hiển thị dialog thay thế trước
         dialog = ReplaceDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             replacements = dialog.get_replacement_pairs()
+            
+            # 2. Lấy danh sách file được chọn
             selected_files = []
             for i in range(self.file_list.count()):
                 item = self.file_list.item(i)
                 if item.checkState() == Qt.Checked:
                     selected_files.append(item.text())
+            
             if not selected_files:
-                self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để thay thế.")
+                self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để xử lý.")
                 return
-            self.status_label.setText("⏳ Đang thay thế, vui lòng chờ...")
-            self.replace_thread = ReplaceWorker(selected_files, replacements)
-            self.replace_thread.finished.connect(self.on_replace_finished)
-            self.replace_thread.start()
+            
+            # 3. Khởi chạy worker gộp
+            self.setup_progress_bar()
+            self.progress_bar.setMaximum(len(selected_files))
+            self.status_label.setText("⏳ Đang xử lý và thay thế, vui lòng chờ...")
+            
+            self.combined_thread = CombinedWorker(selected_files, replacements)
+            self.combined_thread.progress.connect(self.update_progress)
+            self.combined_thread.finished.connect(self.on_combined_finished)
+            self.combined_thread.start()
 
-    def on_replace_finished(self, message):
+    def on_combined_finished(self, message):
         self.status_label.setText(message)
+        self.cleanup_progress_bar()
 
     def save_all_files_as(self):
         # Chọn thư mục đích
@@ -710,7 +696,6 @@ class WordProcessorApp(QWidget):
         self.print_thread.progress.connect(self.update_progress)
         self.print_thread.finished.connect(self.on_print_finished)
         self.print_thread.start()
-
 
     def on_print_finished(self, message):
         self.status_label.setText(message)
@@ -959,7 +944,27 @@ class WordProcessorApp(QWidget):
         """Đóng tất cả các tài liệu Word đang mở"""
         try:
             word_app = win32com.client.GetActiveObject("Word.Application")
-            if word_app.Documents.Count > 0:
+            doc_count = word_app.Documents.Count
+            
+            if doc_count > 0:
+                # Hiển thị popup xác nhận
+                msg_box = QMessageBox()
+                msg_box.setWindowTitle("Xác nhận đóng tất cả phiếu")
+                msg_box.setIcon(QMessageBox.Question)
+                msg_box.setText(f"Hiện có {doc_count} phiếu trong danh sách.\n\n"
+                               f"Bạn đã in các phiếu này chưa?\n"
+                               f"Bạn có chắc chắn muốn đóng tất cả?")
+                
+                yes_btn = msg_box.addButton("Đã in, đóng tất cả", QMessageBox.YesRole)
+                no_btn = msg_box.addButton("Hủy", QMessageBox.NoRole)
+                
+                msg_box.exec_()
+                
+                # Nếu người dùng chọn Hủy, không làm gì cả
+                if msg_box.clickedButton() == no_btn:
+                    self.status_label.setText("⚠️ Đã hủy đóng phiếu.")
+                    return
+                
                 # Lặp cho đến khi không còn tài liệu nào
                 while word_app.Documents.Count > 0:
                     doc = word_app.Documents.Item(1)  # Luôn lấy và đóng tài liệu đầu tiên
@@ -969,7 +974,7 @@ class WordProcessorApp(QWidget):
                 # Sau khi đóng hết, thoát ứng dụng Word
                 word_app.Quit()
                 print("[DEBUG] Đã thoát ứng dụng Word.")
-                self.status_label.setText("✅ Đã đóng tất cả tài liệu và thoát Word.")
+                self.status_label.setText(f"✅ Đã đóng {doc_count} phiếu và thoát Word.")
             else:
                 self.status_label.setText("⚠️ Không có tài liệu Word nào đang mở để đóng.")
         except Exception as e:
@@ -979,7 +984,7 @@ class WordProcessorApp(QWidget):
 class ReplaceDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Thay thế cụm từ")
+        self.setWindowTitle("Xử lý khung tên")
         self.setModal(True)
         self.resize(500, 400)
         
@@ -1046,7 +1051,7 @@ class ReplaceDialog(QDialog):
         # Nút OK và Cancel
         button_layout = QHBoxLayout()
         
-        ok_button = QPushButton("OK")
+        ok_button = QPushButton("Bắt đầu xử lý")
         ok_button.clicked.connect(self.accept)
         ok_button.setStyleSheet("""
             QPushButton {
@@ -1743,11 +1748,13 @@ class PrintWorker(QThread):
                                         word_app.ActivePrinter = default_printer
                                         
                                         # In chỉ trang đầu tiên
-                                        print("[DEBUG] Đang in trang đầu tiên...")
-                                        print(f"[DEBUG] Sử dụng máy in: {default_printer}")
-                                        
-                                        # In trực tiếp trang đầu tiên
-                                        print("[DEBUG] Bắt đầu in trang đầu tiên...")
+                                        # Tắt cảnh báo của Word để tránh popup "margins pretty small"
+                                        # wdAlertsNone = 0, wdAlertsAll = -1
+                                        try:
+                                            word_app.DisplayAlerts = 0
+                                        except:
+                                            pass
+
                                         try:
                                             if self.action_mode == "save_pdf" and self.output_folder:
                                                 # Chế độ lưu PDF - export ra PDF
@@ -1798,14 +1805,16 @@ class PrintWorker(QThread):
                                                 )
                                                 print(f"[DEBUG] Đã gửi lệnh in trang 1 ra máy in")
                                             
-                                        except Exception as pe:
-                                            print(f"[DEBUG] Exception printing for {doc_name}: {pe}")
-                                            import traceback
-                                            traceback.print_exc()
-                                        
-                                        processed += 1
-                                        print(f"[DEBUG] ✓ Đã gửi lệnh in: {doc_name}")
-                                        
+                                            processed += 1
+                                            print(f"[DEBUG] ✓ Đã xử lý thành công: {doc_name}")
+                                            
+                                        finally:
+                                            # Khôi phục cảnh báo
+                                            try:
+                                                word_app.DisplayAlerts = -1  # wdAlertsAll
+                                            except:
+                                                pass
+
                                     except Exception as print_error:
                                         print(f"[DEBUG] Lỗi khi in: {str(print_error)}")
                                         failed += 1
