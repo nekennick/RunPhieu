@@ -2138,9 +2138,6 @@ class MainWindow(QWidget):
         self.excel_tab = ExcelProcessorTab()
         self.tabs.addTab(self.excel_tab, "📊 Xử lý Excel")
         
-        # Disable Excel tab để người dùng không thể truy cập
-        self.tabs.setTabEnabled(1, False)
-        
         layout.addWidget(self.tabs)
         self.setLayout(layout)
 
