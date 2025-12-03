@@ -2135,8 +2135,11 @@ class MainWindow(QWidget):
         self.tabs.addTab(self.word_tab, "📄 Xử lý Word")
         
         # Add Excel Processor tab
-        # self.excel_tab = ExcelProcessorTab()
-        # self.tabs.addTab(self.excel_tab, "📊 Xử lý Excel")
+        self.excel_tab = ExcelProcessorTab()
+        self.tabs.addTab(self.excel_tab, "📊 Xử lý Excel")
+        
+        # Disable Excel tab để người dùng không thể truy cập
+        self.tabs.setTabEnabled(1, False)
         
         layout.addWidget(self.tabs)
         self.setLayout(layout)
