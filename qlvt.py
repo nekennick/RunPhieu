@@ -402,17 +402,17 @@ class WordProcessorApp(QWidget):
         self.layout.addWidget(self.file_list)
 
         button_layout = QHBoxLayout()
-        self.refresh_button = QPushButton("1.Load DS phiếu")
+        self.refresh_button = QPushButton("Load DS phiếu")
         self.refresh_button.clicked.connect(self.load_open_documents)
         button_layout.addWidget(self.refresh_button)
 
         # Nút Xử lý (Gộp tính năng Xử lý khung tên và Thay tên)
-        self.combined_button = QPushButton("2.Xử lý khung tên")
+        self.combined_button = QPushButton("Xử lý khung tên")
         self.combined_button.clicked.connect(self.process_and_replace)
         button_layout.addWidget(self.combined_button)
 
         # Thêm nút In trang đầu
-        self.print_button = QPushButton("4.In phiếu đã chọn")
+        self.print_button = QPushButton("In phiếu đã chọn")
         self.print_button.clicked.connect(self.print_first_pages)
         button_layout.addWidget(self.print_button)
         
@@ -439,12 +439,12 @@ class WordProcessorApp(QWidget):
         # Thêm dòng thông tin máy in vào layout chính
         self.layout.addLayout(printer_info_layout)
 
-        self.save_as_button = QPushButton("5.Lưu tất cả file")
+        self.save_as_button = QPushButton("Lưu tất cả file")
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
 
         # Thêm nút đóng toàn bộ phiếu
-        self.close_all_button = QPushButton("6.Đóng tất cả phiếu")
+        self.close_all_button = QPushButton("Đóng tất cả phiếu")
         self.close_all_button.clicked.connect(self.close_all_documents)
         button_layout.addWidget(self.close_all_button)
 
