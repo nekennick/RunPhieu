@@ -9,7 +9,6 @@ import json
 import os
 import time
 import webbrowser
-import pandas as pd
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, 
