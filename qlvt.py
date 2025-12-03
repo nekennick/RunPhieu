@@ -1,7 +1,7 @@
 import sys
 import pythoncom
 import win32com.client
-import win32print  # Thêm thư viện để làm việc với máy in
+import win32print
 import requests
 import subprocess
 import ctypes
@@ -9,17 +9,21 @@ import json
 import os
 import time
 import webbrowser
+import pandas as pd
+from datetime import datetime
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, 
     QWidget, QFileDialog, QListWidget, QCheckBox, QLabel, 
     QHBoxLayout, QMessageBox, QProgressBar, QListWidgetItem, 
     QInputDialog, QLineEdit, QDialog, QDialogButtonBox, QFormLayout,
-    QComboBox,
-    QScrollArea, QMessageBox, QProgressBar, QTextEdit
+    QComboBox, QScrollArea, QTextEdit, QTabWidget, QRadioButton, QButtonGroup
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon
 import os
+
+# Import Excel processors
+from excel_processor import SCTXProcessor, NTVTDDProcessor
 
 REPLACEMENT_FILE = "replacements.txt"
 
@@ -402,17 +406,17 @@ class WordProcessorApp(QWidget):
         self.layout.addWidget(self.file_list)
 
         button_layout = QHBoxLayout()
-        self.refresh_button = QPushButton("1.Load DS phiếu")
+        self.refresh_button = QPushButton("Load DS phiếu")
         self.refresh_button.clicked.connect(self.load_open_documents)
         button_layout.addWidget(self.refresh_button)
 
         # Nút Xử lý (Gộp tính năng Xử lý khung tên và Thay tên)
-        self.combined_button = QPushButton("2.Xử lý khung tên")
+        self.combined_button = QPushButton("Xử lý khung tên")
         self.combined_button.clicked.connect(self.process_and_replace)
         button_layout.addWidget(self.combined_button)
 
         # Thêm nút In trang đầu
-        self.print_button = QPushButton("4.In phiếu đã chọn")
+        self.print_button = QPushButton("In phiếu đã chọn")
         self.print_button.clicked.connect(self.print_first_pages)
         button_layout.addWidget(self.print_button)
         
@@ -439,12 +443,12 @@ class WordProcessorApp(QWidget):
         # Thêm dòng thông tin máy in vào layout chính
         self.layout.addLayout(printer_info_layout)
 
-        self.save_as_button = QPushButton("5.Lưu tất cả file")
+        self.save_as_button = QPushButton("Lưu tất cả file")
         self.save_as_button.clicked.connect(self.save_all_files_as)
         button_layout.addWidget(self.save_as_button)
 
         # Thêm nút đóng toàn bộ phiếu
-        self.close_all_button = QPushButton("6.Đóng tất cả phiếu")
+        self.close_all_button = QPushButton("Đóng tất cả phiếu")
         self.close_all_button.clicked.connect(self.close_all_documents)
         button_layout.addWidget(self.close_all_button)
 
@@ -1879,8 +1883,267 @@ class PrintWorker(QThread):
             self.finished.emit(f"❌ Lỗi hệ thống: {str(e)}")
 
 
+# ============================================================================
+# EXCEL PROCESSOR WORKER THREAD
+# ============================================================================
+
+class ExcelProcessorWorker(QThread):
+    """Worker thread để xử lý Excel trong background"""
+    status_update = pyqtSignal(str)
+    finished_signal = pyqtSignal(bool, str)
+    progress_start = pyqtSignal()
+    progress_stop = pyqtSignal()
+    
+    def __init__(self, file_path, processor_type):
+        super().__init__()
+        self.file_path = file_path
+        self.processor_type = processor_type
+    
+    def run(self):
+        try:
+            self.progress_start.emit()
+            
+            # Chọn processor
+            if self.processor_type == "sctx":
+                self.status_update.emit("Khởi tạo SCTX Processor...\n")
+                processor = SCTXProcessor(self.file_path)
+            else:
+                self.status_update.emit("Khởi tạo NTVTDD Processor...\n")
+                processor = NTVTDDProcessor(self.file_path)
+            
+            # Đọc file
+            self.status_update.emit("Đang đọc file Excel...\n")
+            if not processor.read_file():
+                self.finished_signal.emit(False, "Không thể đọc file Excel!")
+                return
+            
+            self.status_update.emit("✓ Đọc file thành công!\n")
+            
+            # Xử lý dữ liệu
+            self.status_update.emit("Đang xử lý dữ liệu...\n")
+            if not processor.process():
+                self.finished_signal.emit(False, "Lỗi khi xử lý dữ liệu!")
+                return
+            
+            self.status_update.emit("✓ Xử lý dữ liệu thành công!\n")
+            
+            # Xuất file
+            self.status_update.emit("Đang xuất file kết quả...\n")
+            if not processor.export():
+                self.finished_signal.emit(False, "Lỗi khi xuất file!")
+                return
+            
+            # Tạo tên file output
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_file = f'Ket_qua_xu_ly_{timestamp}.xlsx'
+            
+            self.status_update.emit("✓ Xuất file thành công!\n")
+            self.status_update.emit("-" * 60 + "\n")
+            self.status_update.emit(f"✓ HOÀN THÀNH!\n")
+            self.status_update.emit(f"✓ File kết quả: {output_file}\n")
+            
+            self.finished_signal.emit(True, f"Xử lý file thành công!\n\nFile kết quả: {output_file}")
+            
+        except Exception as e:
+            self.status_update.emit(f"\n✗ LỖI: {str(e)}\n")
+            self.finished_signal.emit(False, f"Đã xảy ra lỗi:\n{str(e)}")
+        
+        finally:
+            self.progress_stop.emit()
+
+
+# ============================================================================
+# EXCEL PROCESSOR TAB
+# ============================================================================
+
+class ExcelProcessorTab(QWidget):
+    """Tab xử lý Excel trong ứng dụng chính"""
+    
+    def __init__(self):
+        super().__init__()
+        self.file_path = None
+        self.is_processing = False
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout()
+        
+        # Title
+        # title_label = QLabel("CHƯƠNG TRÌNH XỬ LÝ DỮ LIỆU EXCEL")
+        # title_label.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px;")
+        # title_label.setAlignment(Qt.AlignCenter)
+        # layout.addWidget(title_label)
+        
+        # Radio buttons frame
+        radio_group_box = QLabel("Chọn loại file Excel:")
+        radio_group_box.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(radio_group_box)
+        
+        # Radio buttons
+        self.processor_type = "sctx"
+        self.button_group = QButtonGroup()
+        
+        self.sctx_radio = QRadioButton("File loại SCTX (Mã phiếu: 02.O09.42.xxxx hoặc 03.O09.42.xxxx)")
+        self.sctx_radio.setChecked(True)
+        self.sctx_radio.toggled.connect(lambda: self.set_processor_type("sctx"))
+        self.button_group.addButton(self.sctx_radio)
+        layout.addWidget(self.sctx_radio)
+        
+        self.ntvtdd_radio = QRadioButton("File loại NTVTDD (Mã phiếu linh hoạt, có xử lý mã vật tư)")
+        self.ntvtdd_radio.toggled.connect(lambda: self.set_processor_type("ntvtdd"))
+        self.button_group.addButton(self.ntvtdd_radio)
+        layout.addWidget(self.ntvtdd_radio)
+        
+        # File selection
+        file_label = QLabel("Chọn file:")
+        file_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
+        layout.addWidget(file_label)
+        
+        file_layout = QHBoxLayout()
+        self.file_label = QLabel("Chưa chọn file")
+        self.file_label.setStyleSheet("color: gray;")
+        file_layout.addWidget(self.file_label)
+        
+        choose_btn = QPushButton("📁 Chọn File Excel")
+        choose_btn.clicked.connect(self.choose_file)
+        file_layout.addWidget(choose_btn)
+        layout.addLayout(file_layout)
+        
+        # Process button
+        self.process_btn = QPushButton("▶ Xử lý File")
+        self.process_btn.setEnabled(False)
+        self.process_btn.clicked.connect(self.process_file)
+        self.process_btn.setStyleSheet("padding: 10px; font-size: 14px; margin-top: 10px;")
+        layout.addWidget(self.process_btn)
+        
+        # Progress bar
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)  # Indeterminate mode
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+        
+        # Status text
+        status_label = QLabel("Trạng thái:")
+        status_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
+        layout.addWidget(status_label)
+        
+        self.status_text = QTextEdit()
+        self.status_text.setReadOnly(True)
+        self.status_text.setMinimumHeight(200)
+        self.status_text.setStyleSheet("font-family: Consolas; font-size: 9pt;")
+        layout.addWidget(self.status_text)
+        
+        # Initial status
+        self.update_status("Sẵn sàng xử lý. Vui lòng chọn file Excel...\n")
+        
+        layout.addStretch()
+        self.setLayout(layout)
+    
+    def set_processor_type(self, ptype):
+        self.processor_type = ptype
+    
+    def choose_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Chọn file Excel",
+            "",
+            "Excel files (*.xlsx *.xls);;All files (*.*)"
+        )
+        
+        if file_path:
+            self.file_path = file_path
+            filename = os.path.basename(file_path)
+            self.file_label.setText(filename)
+            self.file_label.setStyleSheet("color: black;")
+            self.process_btn.setEnabled(True)
+            self.update_status(f"✓ Đã chọn file: {filename}\n")
+    
+    def process_file(self):
+        if not self.file_path:
+            QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn file Excel trước!")
+            return
+        
+        if self.is_processing:
+            QMessageBox.information(self, "Thông báo", "Đang xử lý file, vui lòng đợi...")
+            return
+        
+        # Disable button và start progress
+        self.process_btn.setEnabled(False)
+        self.progress.setVisible(True)
+        self.is_processing = True
+        
+        # Clear status
+        self.status_text.clear()
+        self.update_status(f"Bắt đầu xử lý file: {os.path.basename(self.file_path)}\n")
+        self.update_status(f"Loại xử lý: {self.processor_type.upper()}\n")
+        self.update_status("-" * 60 + "\n")
+        
+        # Run processor in thread
+        self.worker = ExcelProcessorWorker(self.file_path, self.processor_type)
+        self.worker.status_update.connect(self.update_status)
+        self.worker.finished_signal.connect(self.on_processing_finished)
+        self.worker.progress_start.connect(lambda: self.progress.setVisible(True))
+        self.worker.progress_stop.connect(lambda: self.progress.setVisible(False))
+        self.worker.start()
+    
+    def update_status(self, message):
+        self.status_text.append(message.rstrip())
+        self.status_text.verticalScrollBar().setValue(
+            self.status_text.verticalScrollBar().maximum()
+        )
+    
+    def on_processing_finished(self, success, message):
+        self.progress.setVisible(False)
+        self.process_btn.setEnabled(True)
+        self.is_processing = False
+        
+        if success:
+            QMessageBox.information(self, "Thành công", message)
+        else:
+            QMessageBox.critical(self, "Lỗi", message)
+
+
+# ============================================================================
+# MAIN WINDOW WITH TABS
+# ============================================================================
+
+class MainWindow(QWidget):
+    """Cửa sổ chính với tab cho Word và Excel processor"""
+    
+    def __init__(self):
+        super().__init__()
+        self.current_version = "1.0.21"
+        self.init_ui()
+    
+    def init_ui(self):
+        self.setWindowTitle(f"Công cụ xử lý phiếu nhập xuất kho {self.current_version} | www.khoatran.io.vn")
+        self.setGeometry(200, 200, 800, 600)
+        
+        # Thiết lập icon
+        icon = QIcon("icon.ico")
+        self.setWindowIcon(icon)
+        self.setWindowFlags(self.windowFlags() | Qt.Window)
+        
+        # Main layout
+        layout = QVBoxLayout()
+        
+        # Create tab widget
+        self.tabs = QTabWidget()
+        
+        # Add Word Processor tab
+        self.word_tab = WordProcessorApp()
+        self.tabs.addTab(self.word_tab, "📄 Xử lý Word")
+        
+        # Add Excel Processor tab
+        # self.excel_tab = ExcelProcessorTab()
+        # self.tabs.addTab(self.excel_tab, "📊 Xử lý Excel")
+        
+        layout.addWidget(self.tabs)
+        self.setLayout(layout)
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = WordProcessorApp()
+    window = MainWindow()
     window.show()
     sys.exit(app.exec_())
