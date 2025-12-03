@@ -9,6 +9,7 @@ import json
 import os
 import time
 import webbrowser
+import pandas as pd
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, 
@@ -2116,7 +2117,7 @@ class MainWindow(QWidget):
     
     def init_ui(self):
         self.setWindowTitle(f"Công cụ xử lý phiếu nhập xuất kho {self.current_version} | www.khoatran.io.vn")
-        self.setGeometry(200, 200, 800, 600)
+        self.setGeometry(200, 200, 600, 400)
         
         # Thiết lập icon
         icon = QIcon("icon.ico")
