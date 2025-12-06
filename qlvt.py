@@ -267,14 +267,14 @@ class CombinedWorker(QThread):
                                 target_cell = table.Cell(last_row, col + 1)
                             break
                     
-                    # Tìm và xóa "PHAN CÔNG HUY" trong cùng hàng cuối
-                    for col in range(1, table.Columns.Count + 1):
-                        cell_text = table.Cell(last_row, col).Range.Text.strip()
-                        if "PHAN CÔNG HUY" in cell_text:
-                            # Xóa nội dung "PHAN CÔNG HUY" khỏi ô
-                            cell = table.Cell(last_row, col)
-                            cell.Range.Text = ""
-                            break
+                    # # Tìm và xóa "PHAN CÔNG HUY" trong cùng hàng cuối
+                    # for col in range(1, table.Columns.Count + 1):
+                    #     cell_text = table.Cell(last_row, col).Range.Text.strip()
+                    #     if "PHAN CÔNG HUY" in cell_text:
+                    #         # Xóa nội dung "PHAN CÔNG HUY" khỏi ô
+                    #         cell = table.Cell(last_row, col)
+                    #         cell.Range.Text = ""
+                    #         break
                     
                     # Tìm họ tên người nhận/giao hàng và điền vào ô bên phải của "VÕ THANH ĐIỀN"
                     if target_cell:
@@ -951,31 +951,78 @@ class WordProcessorApp(QWidget):
             doc_count = word_app.Documents.Count
             
             if doc_count > 0:
-                # Hiển thị popup xác nhận
-                msg_box = QMessageBox()
-                msg_box.setWindowTitle("Xác nhận đóng tất cả phiếu")
-                msg_box.setIcon(QMessageBox.Question)
-                msg_box.setText(f"Hiện có {doc_count} phiếu trong danh sách.\n\n"
-                               f"Bạn đã in các phiếu này chưa?\n"
-                               f"Bạn có chắc chắn muốn đóng tất cả?")
+                from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
                 
-                yes_btn = msg_box.addButton("Đã in, đóng tất cả", QMessageBox.YesRole)
-                no_btn = msg_box.addButton("Hủy", QMessageBox.NoRole)
+                dialog = QDialog(self)
+                dialog.setWindowTitle("Xác nhận đóng tất cả phiếu")
+                dialog.setModal(True)
+                dialog.setFixedSize(400, 180)
                 
-                msg_box.exec_()
+                layout = QVBoxLayout()
                 
-                # Nếu người dùng chọn Hủy, không làm gì cả
-                if msg_box.clickedButton() == no_btn:
+                message_label = QLabel(
+                    f"Hiện có {doc_count} phiếu trong danh sách.\n\n"
+                    f"Bạn đã in các phiếu này chưa?\n"
+                    f"Bạn có chắc chắn muốn đóng tất cả?"
+                )
+                message_label.setWordWrap(True)
+                message_label.setStyleSheet("font-size: 11pt; padding: 10px;")
+                layout.addWidget(message_label)
+                
+                button_layout = QHBoxLayout()
+                
+                yes_btn = QPushButton("Đã in, đóng tất cả")
+                yes_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #4CAF50;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        font-size: 10pt;
+                    }
+                    QPushButton:hover {
+                        background-color: #45a049;
+                    }
+                """)
+                yes_btn.clicked.connect(dialog.accept)
+                
+                no_btn = QPushButton("Hủy")
+                no_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #9E9E9E;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        font-size: 10pt;
+                    }
+                    QPushButton:hover {
+                        background-color: #757575;
+                    }
+                """)
+                no_btn.clicked.connect(dialog.reject)
+                
+                button_layout.addWidget(yes_btn)
+                button_layout.addWidget(no_btn)
+                layout.addLayout(button_layout)
+                
+                dialog.setLayout(layout)
+                
+                result = dialog.exec_()
+                
+                if result != QDialog.Accepted:
                     self.status_label.setText("⚠️ Đã hủy đóng phiếu.")
                     return
                 
-                # Lặp cho đến khi không còn tài liệu nào
                 while word_app.Documents.Count > 0:
-                    doc = word_app.Documents.Item(1)  # Luôn lấy và đóng tài liệu đầu tiên
+                    doc = word_app.Documents.Item(1)
                     doc_name = doc.Name
                     doc.Close(SaveChanges=False)
                     print(f"[DEBUG] Đã đóng tài liệu: {doc_name}")
-                # Sau khi đóng hết, thoát ứng dụng Word
+                
                 word_app.Quit()
                 print("[DEBUG] Đã thoát ứng dụng Word.")
                 self.status_label.setText(f"✅ Đã đóng {doc_count} phiếu và thoát Word.")
@@ -1218,7 +1265,7 @@ class ReplaceDialog(QDialog):
             old_text = old_edit.text().strip()
             new_text = new_edit.text().strip()
             
-            if old_text and new_text:  # Chỉ lấy các cặp có đủ cả 2 từ
+            if old_text:
                 pairs.append((old_text, new_text))
         
         return pairs
