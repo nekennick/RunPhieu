@@ -361,7 +361,7 @@ class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.current_version = "1.0.21"
+        self.current_version = "1.0.22"
         
         # Khởi tạo progress bar
         self.progress_bar = None
@@ -853,56 +853,134 @@ class WordProcessorApp(QWidget):
             print(f"[UPDATE] Lỗi auto-check: {e}")
     
     def show_update_dialog(self, release_info):
-        """Hiển thị dialog xác nhận cập nhật - bắt buộc phải cập nhật"""
+        """Hiển thị dialog cập nhật với progress bar - bắt buộc cập nhật"""
         latest_version = release_info['tag_name'].lstrip('v')
         
-        # Sử dụng QDialog để có thể xử lý sự kiện đóng
         dialog = QDialog(self)
-        dialog.setWindowTitle("⚠️ Cập nhật bắt buộc")
+        dialog.setWindowTitle("🔄 Cập nhật bắt buộc")
         dialog.setModal(True)
-        dialog.setFixedSize(400, 200)
+        dialog.setFixedSize(450, 220)
         
-        # Layout
         layout = QVBoxLayout()
         
-        # Icon và tiêu đề
-        title_label = QLabel(f"⚠️ Có phiên bản mới: v{latest_version}")
-        title_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #d32f2f;")
-        title_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title_label)
+        # Thông tin phiên bản
+        info_label = QLabel(f"⚠️ Có phiên bản mới: v{latest_version}\nPhiên bản hiện tại: v{self.current_version}\n\nBạn PHẢI cập nhật để tiếp tục sử dụng.")
+        info_label.setAlignment(Qt.AlignCenter)
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("font-size: 11px; padding: 10px;")
+        layout.addWidget(info_label)
         
-        # Nội dung
-        content_label = QLabel("Phiên bản hiện tại đã không còn khả dụng.\n\nBạn PHẢI cập nhật để tiếp tục sử dụng ứng dụng.\n\nNhấn 'Cập nhật ngay' để mở trang tải về.")
-        content_label.setAlignment(Qt.AlignCenter)
-        content_label.setWordWrap(True)
-        layout.addWidget(content_label)
+        # Progress bar
+        self.update_progress = QProgressBar()
+        self.update_progress.setVisible(False)
+        self.update_progress.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid grey;
+                border-radius: 5px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+            }
+        """)
+        layout.addWidget(self.update_progress)
+        
+        # Status label
+        self.update_status = QLabel("")
+        self.update_status.setAlignment(Qt.AlignCenter)
+        self.update_status.setStyleSheet("color: #666; font-size: 10px;")
+        layout.addWidget(self.update_status)
         
         # Nút cập nhật
-        update_button = QPushButton("Cập nhật ngay")
-        update_button.setStyleSheet("""
+        update_btn = QPushButton("Cập nhật ngay")
+        update_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4CAF50;
                 color: white;
                 border: none;
-                padding: 10px;
+                padding: 12px;
                 border-radius: 5px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 13px;
             }
             QPushButton:hover {
                 background-color: #45a049;
             }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
         """)
-        update_button.clicked.connect(lambda: self._handle_update_click(dialog, release_info))
-        layout.addWidget(update_button)
+        update_btn.clicked.connect(lambda: self._start_update(dialog, release_info, update_btn))
+        layout.addWidget(update_btn)
         
         dialog.setLayout(layout)
         
-        # Xử lý sự kiện đóng dialog (nhấn nút X)
+        # Xử lý sự kiện đóng dialog (nhấn nút X) - bắt buộc phải update
         dialog.closeEvent = lambda event: self._handle_dialog_close(event, release_info)
         
-        # Hiển thị dialog
         dialog.exec_()
+
+    
+    def _start_update(self, dialog, release_info, update_btn):
+        """Đầu quá trình tải và cài đặt update"""
+        try:
+            # Vô hiệu hóa nút
+            update_btn.setEnabled(False)
+            update_btn.setText("Đang cập nhật...")
+            
+            self.update_progress.setVisible(True)
+            self.update_status.setText("Đang lấy thông tin cập nhật...")
+            QApplication.processEvents()
+            
+            # Lấy URL download
+            download_url, filename = self.updater.get_exe_download_url(release_info)
+            if not download_url:
+                self.update_status.setText("❌ Không tìm thấy file cập nhật!")
+                update_btn.setEnabled(True)
+                update_btn.setText("Cập nhật ngay")
+                return
+            
+            self.update_status.setText(f"Đang tải {filename}...")
+            self.update_progress.setValue(0)
+            QApplication.processEvents()
+            
+            # Callback để cập nhật progress
+            def update_progress(value):
+                self.update_progress.setValue(value)
+                QApplication.processEvents()
+            
+            # Tải file
+            new_exe = self.updater.download_update(download_url, update_progress)
+            if not new_exe:
+                self.update_status.setText("❌ Lỗi tải file cập nhật!")
+                update_btn.setEnabled(True)
+                update_btn.setText("Cập nhật ngay")
+                return
+            
+            self.update_status.setText("Đang cài đặt cập nhật...")
+            self.update_progress.setValue(100)
+            QApplication.processEvents()
+            
+            # Cài đặt
+            if self.updater.install_update(new_exe):
+                QMessageBox.information(
+                    self, "Thành công", 
+                    "Đã tải xong bản cập nhật!\n\nỨng dụng sẽ đóng và khởi động lại."
+                )
+                dialog.accept()
+                QApplication.quit()
+            else:
+                self.update_status.setText("❌ Lỗi cài đặt cập nhật!")
+                update_btn.setEnabled(True)
+                update_btn.setText("Cập nhật ngay")
+                
+        except Exception as e:
+            self.update_status.setText(f"❌ Lỗi: {str(e)}")
+            update_btn.setEnabled(True)
+            update_btn.setText("Cập nhật ngay")
+            print(f"[UPDATE] Lỗi _start_update: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _handle_update_click(self, dialog, release_info):
         """Xử lý khi người dùng nhấn nút cập nhật"""
@@ -910,8 +988,8 @@ class WordProcessorApp(QWidget):
         self.perform_update(release_info)
     
     def _handle_dialog_close(self, event, release_info):
-        """Xử lý khi người dùng đóng dialog (nhấn nút X)"""
-        # Ngay cả khi đóng dialog cũng phải cập nhật
+        """Xử lý khi người dùng đóng dialog (nhấn nút X) - bắt buộc phải update"""
+        # Người dùng không thể đóng dialog mà không cập nhật
         self.perform_update(release_info)
         event.accept()
 
@@ -1455,28 +1533,25 @@ class AutoUpdater:
             print(f"[UPDATE] Lỗi so sánh version: {e}")
             return False
     
-    def get_download_url(self):
-        """Lấy URL download file .exe"""
+    def get_exe_download_url(self, release_info):
+        """Lấy URL download file .exe từ release info"""
         try:
-            # Tạo một dialog để yêu cầu người dùng chọn file .exe
-            file_path, _ = QFileDialog.getOpenFileName(
-                None, "Chọn file cập nhật", "", "Executable Files (*.exe)"
-            )
-            if file_path:
-                print(f"[UPDATE] Chọn file cập nhật: {file_path}")
-                return file_path
-            else:
-                print(f"[UPDATE] Không chọn được file cập nhật.")
-                return None
+            assets = release_info.get('assets', [])
+            for asset in assets:
+                if asset['name'].endswith('.exe'):
+                    print(f"[UPDATE] Tìm thấy file: {asset['name']}")
+                    return asset['browser_download_url'], asset['name']
+            print(f"[UPDATE] Không tìm thấy file .exe trong release")
+            return None, None
         except Exception as e:
             print(f"[UPDATE] Lỗi lấy download URL: {e}")
-            return None
+            return None, None
     
     def download_update(self, download_url, progress_callback=None):
         """Tải xuống file cập nhật với progress"""
         try:
             print(f"[UPDATE] Bắt đầu tải xuống: {download_url}")
-            response = requests.get(download_url, stream=True, timeout=30)
+            response = requests.get(download_url, stream=True, timeout=120)
             response.raise_for_status()
             
             # Lấy tên file từ URL
@@ -1509,175 +1584,78 @@ class AutoUpdater:
             return False
     
     def install_update(self, new_exe_path):
-        """Cài đặt bản cập nhật"""
+        """Cài đặt bản cập nhật bằng PowerShell script"""
         try:
-            current_exe_path = sys.argv[0]
-            print(f"[UPDATE] Cài đặt từ: {new_exe_path}")
-            print(f"[UPDATE] Cài đặt đến: {current_exe_path}")
+            if getattr(sys, 'frozen', False):
+                current_exe = sys.executable
+            else:
+                current_exe = os.path.abspath(sys.argv[0])
             
-            # Kiểm tra file có tồn tại không
-            if not os.path.exists(new_exe_path):
-                print(f"[UPDATE] Lỗi: File nguồn không tồn tại: {new_exe_path}")
-                return False
+            print(f"[UPDATE] Current exe: {current_exe}")
+            print(f"[UPDATE] New exe: {new_exe_path}")
             
-            # Kiểm tra file đích có tồn tại không
-            if not os.path.exists(current_exe_path):
-                print(f"[UPDATE] Lỗi: File đích không tồn tại: {current_exe_path}")
-                return False
-            
-            # Tạo batch script để thay thế file với cải tiến
-            batch_content = f'''@echo off
-setlocal enabledelayedexpansion
+            # Tạo PowerShell script
+            ps_script = f'''
+$newExe = "{new_exe_path}"
+$currentExe = "{current_exe}"
+$processName = [System.IO.Path]::GetFileNameWithoutExtension($currentExe)
 
-echo [UPDATE] ========================================
-echo [UPDATE] Bắt đầu cài đặt bản cập nhật...
-echo [UPDATE] Thời gian: %date% %time%
-echo [UPDATE] ========================================
+Write-Host "[UPDATE] Đợi ứng dụng đóng..."
+Start-Sleep -Seconds 3
 
-echo [UPDATE] Kiểm tra file nguồn...
-if not exist "{new_exe_path}" (
-    echo [UPDATE] LỖI: Không tìm thấy file nguồn {new_exe_path}
-    pause
-    exit /b 1
-)
+# Đợi process đóng (tối đa 20 giây)
+$maxRetries = 10
+for ($i = 0; $i -lt $maxRetries; $i++) {{
+    $process = Get-Process -Name $processName -ErrorAction SilentlyContinue
+    if (-not $process) {{
+        Write-Host "[UPDATE] Ứng dụng đã đóng"
+        break
+    }}
+    Write-Host "[UPDATE] Ứng dụng vẫn đang chạy, đợi thêm..."
+    Start-Sleep -Seconds 2
+}}
 
-echo [UPDATE] Kiểm tra file đích...
-if not exist "{current_exe_path}" (
-    echo [UPDATE] LỖI: Không tìm thấy file đích {current_exe_path}
-    pause
-    exit /b 1
-)
-
-echo [UPDATE] Đang đóng ứng dụng hiện tại...
-echo [UPDATE] Tên process: {os.path.basename(current_exe_path)}
-
-REM Đợi ứng dụng đóng hoàn toàn
-timeout /t 5 /nobreak >nul
-
-REM Kiểm tra xem process có còn chạy không
-:check_lock
-echo [UPDATE] Kiểm tra process...
-tasklist /FI "IMAGENAME eq {os.path.basename(current_exe_path)}" 2>NUL | find /I /N "{os.path.basename(current_exe_path)}">NUL
-if "%ERRORLEVEL%"=="0" (
-    echo [UPDATE] Ứng dụng vẫn đang chạy, đợi thêm...
-    timeout /t 3 /nobreak >nul
-    goto check_lock
-)
-
-echo [UPDATE] Ứng dụng đã đóng hoàn toàn!
-echo [UPDATE] Bắt đầu cài đặt...
-
-REM Tạo backup trước khi cài đặt
-echo [UPDATE] Tạo backup...
-copy "{current_exe_path}" "{current_exe_path}.backup" /Y >nul 2>&1
-
-REM Thử copy với retry
-set retry_count=0
-:copy_retry
-echo [UPDATE] Thử copy lần !retry_count!...
-copy "{new_exe_path}" "{current_exe_path}" /Y
-if %errorlevel% equ 0 (
-    echo [UPDATE] ========================================
-    echo [UPDATE] CÀI ĐẶT THÀNH CÔNG!
-    echo [UPDATE] ========================================
+# Thay thế file
+try {{
+    Write-Host "[UPDATE] Đang thay thế file..."
+    Copy-Item -Path $newExe -Destination $currentExe -Force
+    Write-Host "[UPDATE] Cập nhật thành công!"
     
-    echo [UPDATE] Kiểm tra file mới...
-    if exist "{current_exe_path}" (
-        echo [UPDATE] File mới đã được tạo thành công
-    ) else (
-        echo [UPDATE] LỖI: File mới không tồn tại
-        pause
-        exit /b 1
-    )
+    # Khởi động ứng dụng mới
+    Write-Host "[UPDATE] Khởi động ứng dụng mới..."
+    Start-Process -FilePath $currentExe
     
-    echo [UPDATE] Khởi động lại ứng dụng...
-    timeout /t 2 /nobreak >nul
+    # Xóa file tạm
+    Start-Sleep -Seconds 2
+    Remove-Item -Path $newExe -Force -ErrorAction SilentlyContinue
     
-    REM Khởi động ứng dụng mới
-    start "" "{current_exe_path}"
-    
-    echo [UPDATE] Dọn dẹp file tạm...
-    del "{new_exe_path}" 2>nul
-    del "{current_exe_path}.backup" 2>nul
-    del "%~f0" 2>nul
-    
-    echo [UPDATE] ========================================
-    echo [UPDATE] HOÀN TẤT CÀI ĐẶT!
-    echo [UPDATE] ========================================
-    timeout /t 3 /nobreak >nul
-    exit /b 0
-) else (
-    set /a retry_count+=1
-    echo [UPDATE] Lỗi copy (lần !retry_count!), errorlevel: %errorlevel%
-    if !retry_count! lss 5 (
-        echo [UPDATE] Thử lại sau 3 giây...
-        timeout /t 3 /nobreak >nul
-        goto copy_retry
-    ) else (
-        echo [UPDATE] ========================================
-        echo [UPDATE] LỖI CÀI ĐẶT SAU 5 LẦN THỬ!
-        echo [UPDATE] ========================================
-        echo [UPDATE] Chi tiết lỗi:
-        echo [UPDATE] - File nguồn: {new_exe_path}
-        echo [UPDATE] - File đích: {current_exe_path}
-        echo [UPDATE] - Error level cuối: %errorlevel%
-        echo [UPDATE] 
-        echo [UPDATE] Vui lòng thử cài đặt thủ công hoặc liên hệ hỗ trợ.
-        pause
-        exit /b 1
-    )
-)'''
+    Write-Host "[UPDATE] Hoàn tất!"
+}} catch {{
+    Write-Host "[UPDATE] Lỗi: $_"
+    Read-Host "Nhấn Enter để đóng"
+}}
+'''
             
-            batch_path = os.path.join(self.temp_dir, 'update_qlvt.bat')
-            with open(batch_path, 'w', encoding='utf-8') as f:
-                f.write(batch_content)
+            # Lưu script
+            script_path = os.path.join(self.temp_dir, 'update.ps1')
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write(ps_script)
             
-            print(f"[UPDATE] Tạo batch script: {batch_path}")
+            print(f"[UPDATE] Đã tạo script: {script_path}")
             
-            # Chạy batch script với elevated privileges nếu cần
-            try:
-                print(f"[UPDATE] Chạy batch script với timeout 120 giây...")
-                
-                # Kiểm tra quyền admin
-                if not is_admin():
-                    print("[UPDATE] Không có quyền admin, thử chạy với elevated privileges...")
-                    # Thử chạy với elevated privileges - sửa cách truyền argument
-                    powershell_cmd = f'Start-Process cmd -ArgumentList "/c", "{batch_path}" -Verb RunAs -Wait'
-                    result = subprocess.run(['powershell', '-Command', powershell_cmd],
-                                          shell=True, 
-                                          capture_output=True, 
-                                          text=True, 
-                                          timeout=120)
-                else:
-                    # Chạy bình thường nếu đã có quyền admin
-                    result = subprocess.run(['cmd', '/c', batch_path], 
-                                          shell=True, 
-                                          capture_output=True, 
-                                          text=True, 
-                                          timeout=120)
-                
-                print(f"[UPDATE] Batch script return code: {result.returncode}")
-                print(f"[UPDATE] Batch script output: {result.stdout}")
-                if result.stderr:
-                    print(f"[UPDATE] Batch script errors: {result.stderr}")
-                
-                # Kiểm tra kết quả chi tiết
-                if result.returncode == 0:
-                    print("[UPDATE] Batch script hoàn thành thành công")
-                    return True
-                else:
-                    print(f"[UPDATE] Batch script thất bại với return code: {result.returncode}")
-                    return False
-                    
-            except subprocess.TimeoutExpired:
-                print(f"[UPDATE] Batch script timeout sau 120 giây")
-                return False
-            except Exception as e:
-                print(f"[UPDATE] Lỗi chạy batch script: {e}")
-                return False
-                
+            # Chạy PowerShell script ẩn
+            subprocess.Popen(
+                ['powershell', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script_path],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            
+            print("[UPDATE] Đã khởi chạy updater script")
+            return True
+            
         except Exception as e:
             print(f"[UPDATE] Lỗi cài đặt: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
 
