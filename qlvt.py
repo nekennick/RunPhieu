@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import pythoncom
 import win32com.client
 import win32print
@@ -9,7 +9,7 @@ import json
 import os
 import time
 import webbrowser
-import pandas as pd
+# import pandas as pd  # Removed - not needed
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, 
@@ -22,8 +22,8 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon
 import os
 
-# Import Excel processors
-from excel_processor import SCTXProcessor, NTVTDDProcessor
+# Import Excel processors - REMOVED
+# from excel_processor import SCTXProcessor, NTVTDDProcessor
 
 REPLACEMENT_FILE = "replacements.txt"
 
@@ -361,7 +361,7 @@ class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.current_version = "1.0.22"
+        self.current_version = "1.0.21"
         
         # Khởi tạo progress bar
         self.progress_bar = None
@@ -1978,197 +1978,13 @@ class ExcelProcessorWorker(QThread):
 
 
 # ============================================================================
-# EXCEL PROCESSOR TAB
+# MAIN APPLICATION
 # ============================================================================
 
-class ExcelProcessorTab(QWidget):
-    """Tab xử lý Excel trong ứng dụng chính"""
-    
-    def __init__(self):
-        super().__init__()
-        self.file_path = None
-        self.is_processing = False
-        self.init_ui()
-    
-    def init_ui(self):
-        layout = QVBoxLayout()
-        
-        # Title
-        # title_label = QLabel("CHƯƠNG TRÌNH XỬ LÝ DỮ LIỆU EXCEL")
-        # title_label.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px;")
-        # title_label.setAlignment(Qt.AlignCenter)
-        # layout.addWidget(title_label)
-        
-        # Radio buttons frame
-        radio_group_box = QLabel("Chọn loại file Excel:")
-        radio_group_box.setStyleSheet("font-weight: bold; margin-top: 10px;")
-        layout.addWidget(radio_group_box)
-        
-        # Radio buttons
-        self.processor_type = "sctx"
-        self.button_group = QButtonGroup()
-        
-        self.sctx_radio = QRadioButton("File loại SCTX (Mã phiếu: 02.O09.42.xxxx hoặc 03.O09.42.xxxx)")
-        self.sctx_radio.setChecked(True)
-        self.sctx_radio.toggled.connect(lambda: self.set_processor_type("sctx"))
-        self.button_group.addButton(self.sctx_radio)
-        layout.addWidget(self.sctx_radio)
-        
-        self.ntvtdd_radio = QRadioButton("File loại NTVTDD (Mã phiếu linh hoạt, có xử lý mã vật tư)")
-        self.ntvtdd_radio.toggled.connect(lambda: self.set_processor_type("ntvtdd"))
-        self.button_group.addButton(self.ntvtdd_radio)
-        layout.addWidget(self.ntvtdd_radio)
-        
-        # File selection
-        file_label = QLabel("Chọn file:")
-        file_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
-        layout.addWidget(file_label)
-        
-        file_layout = QHBoxLayout()
-        self.file_label = QLabel("Chưa chọn file")
-        self.file_label.setStyleSheet("color: gray;")
-        file_layout.addWidget(self.file_label)
-        
-        choose_btn = QPushButton("📁 Chọn File Excel")
-        choose_btn.clicked.connect(self.choose_file)
-        file_layout.addWidget(choose_btn)
-        layout.addLayout(file_layout)
-        
-        # Process button
-        self.process_btn = QPushButton("▶ Xử lý File")
-        self.process_btn.setEnabled(False)
-        self.process_btn.clicked.connect(self.process_file)
-        self.process_btn.setStyleSheet("padding: 10px; font-size: 14px; margin-top: 10px;")
-        layout.addWidget(self.process_btn)
-        
-        # Progress bar
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 0)  # Indeterminate mode
-        self.progress.setVisible(False)
-        layout.addWidget(self.progress)
-        
-        # Status text
-        status_label = QLabel("Trạng thái:")
-        status_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
-        layout.addWidget(status_label)
-        
-        self.status_text = QTextEdit()
-        self.status_text.setReadOnly(True)
-        self.status_text.setMinimumHeight(200)
-        self.status_text.setStyleSheet("font-family: Consolas; font-size: 9pt;")
-        layout.addWidget(self.status_text)
-        
-        # Initial status
-        self.update_status("Sẵn sàng xử lý. Vui lòng chọn file Excel...\n")
-        
-        layout.addStretch()
-        self.setLayout(layout)
-    
-    def set_processor_type(self, ptype):
-        self.processor_type = ptype
-    
-    def choose_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Chọn file Excel",
-            "",
-            "Excel files (*.xlsx *.xls);;All files (*.*)"
-        )
-        
-        if file_path:
-            self.file_path = file_path
-            filename = os.path.basename(file_path)
-            self.file_label.setText(filename)
-            self.file_label.setStyleSheet("color: black;")
-            self.process_btn.setEnabled(True)
-            self.update_status(f"✓ Đã chọn file: {filename}\n")
-    
-    def process_file(self):
-        if not self.file_path:
-            QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn file Excel trước!")
-            return
-        
-        if self.is_processing:
-            QMessageBox.information(self, "Thông báo", "Đang xử lý file, vui lòng đợi...")
-            return
-        
-        # Disable button và start progress
-        self.process_btn.setEnabled(False)
-        self.progress.setVisible(True)
-        self.is_processing = True
-        
-        # Clear status
-        self.status_text.clear()
-        self.update_status(f"Bắt đầu xử lý file: {os.path.basename(self.file_path)}\n")
-        self.update_status(f"Loại xử lý: {self.processor_type.upper()}\n")
-        self.update_status("-" * 60 + "\n")
-        
-        # Run processor in thread
-        self.worker = ExcelProcessorWorker(self.file_path, self.processor_type)
-        self.worker.status_update.connect(self.update_status)
-        self.worker.finished_signal.connect(self.on_processing_finished)
-        self.worker.progress_start.connect(lambda: self.progress.setVisible(True))
-        self.worker.progress_stop.connect(lambda: self.progress.setVisible(False))
-        self.worker.start()
-    
-    def update_status(self, message):
-        self.status_text.append(message.rstrip())
-        self.status_text.verticalScrollBar().setValue(
-            self.status_text.verticalScrollBar().maximum()
-        )
-    
-    def on_processing_finished(self, success, message):
-        self.progress.setVisible(False)
-        self.process_btn.setEnabled(True)
-        self.is_processing = False
-        
-        if success:
-            QMessageBox.information(self, "Thành công", message)
-        else:
-            QMessageBox.critical(self, "Lỗi", message)
-
-
-# ============================================================================
-# MAIN WINDOW WITH TABS
-# ============================================================================
-
-class MainWindow(QWidget):
-    """Cửa sổ chính với tab cho Word và Excel processor"""
-    
-    def __init__(self):
-        super().__init__()
-        self.current_version = "1.0.21"
-        self.init_ui()
-    
-    def init_ui(self):
-        self.setWindowTitle(f"Công cụ xử lý phiếu nhập xuất kho {self.current_version} | www.khoatran.io.vn")
-        self.setGeometry(200, 200, 600, 400)
-        
-        # Thiết lập icon
-        icon = QIcon("icon.ico")
-        self.setWindowIcon(icon)
-        self.setWindowFlags(self.windowFlags() | Qt.Window)
-        
-        # Main layout
-        layout = QVBoxLayout()
-        
-        # Create tab widget
-        self.tabs = QTabWidget()
-        
-        # Add Word Processor tab
-        self.word_tab = WordProcessorApp()
-        self.tabs.addTab(self.word_tab, "📄 Xử lý Word")
-        
-        # Add Excel Processor tab
-        self.excel_tab = ExcelProcessorTab()
-        self.tabs.addTab(self.excel_tab, "📊 Xử lý Excel")
-        
-        layout.addWidget(self.tabs)
-        self.setLayout(layout)
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = WordProcessorApp()
     window.show()
     sys.exit(app.exec_())
