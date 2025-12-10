@@ -853,13 +853,13 @@ class WordProcessorApp(QWidget):
             print(f"[UPDATE] Lỗi auto-check: {e}")
     
     def show_update_dialog(self, release_info):
-        """Hiển thị dialog cập nhật với progress bar - bắt buộc cập nhật"""
+        """Hiển thị dialog thông báo cập nhật - bắt buộc cập nhật"""
         latest_version = release_info['tag_name'].lstrip('v')
         
         dialog = QDialog(self)
-        dialog.setWindowTitle("🔄 Cập nhật bắt buộc")
+        dialog.setWindowTitle("⚠️ Cập nhật bắt buộc")
         dialog.setModal(True)
-        dialog.setFixedSize(450, 220)
+        dialog.setFixedSize(400, 180)
         
         layout = QVBoxLayout()
         
@@ -867,29 +867,8 @@ class WordProcessorApp(QWidget):
         info_label = QLabel(f"⚠️ Có phiên bản mới: v{latest_version}\nPhiên bản hiện tại: v{self.current_version}\n\nBạn PHẢI cập nhật để tiếp tục sử dụng.")
         info_label.setAlignment(Qt.AlignCenter)
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("font-size: 11px; padding: 10px;")
+        info_label.setStyleSheet("font-size: 12px; padding: 10px;")
         layout.addWidget(info_label)
-        
-        # Progress bar
-        self.update_progress = QProgressBar()
-        self.update_progress.setVisible(False)
-        self.update_progress.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid grey;
-                border-radius: 5px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #4CAF50;
-            }
-        """)
-        layout.addWidget(self.update_progress)
-        
-        # Status label
-        self.update_status = QLabel("")
-        self.update_status.setAlignment(Qt.AlignCenter)
-        self.update_status.setStyleSheet("color: #666; font-size: 10px;")
-        layout.addWidget(self.update_status)
         
         # Nút cập nhật
         update_btn = QPushButton("Cập nhật ngay")
@@ -906,11 +885,8 @@ class WordProcessorApp(QWidget):
             QPushButton:hover {
                 background-color: #45a049;
             }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
         """)
-        update_btn.clicked.connect(lambda: self._start_update(dialog, release_info, update_btn))
+        update_btn.clicked.connect(lambda: self._do_update(dialog, release_info))
         layout.addWidget(update_btn)
         
         dialog.setLayout(layout)
@@ -919,6 +895,11 @@ class WordProcessorApp(QWidget):
         dialog.closeEvent = lambda event: self._handle_dialog_close(event, release_info)
         
         dialog.exec_()
+    
+    def _do_update(self, dialog, release_info):
+        """Xử lý khi người dùng nhấn cập nhật"""
+        dialog.accept()
+        self.perform_update(release_info)
 
     
     def _start_update(self, dialog, release_info, update_btn):
