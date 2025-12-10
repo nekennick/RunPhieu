@@ -361,7 +361,7 @@ class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.current_version = "1.0.21"
+        self.current_version = "1.0.22"
         
         # Khởi tạo progress bar
         self.progress_bar = None
