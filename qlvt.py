@@ -361,7 +361,7 @@ class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.current_version = "1.0.22"
+        self.current_version = "1.0.21"
         
         # Khởi tạo progress bar
         self.progress_bar = None
@@ -999,7 +999,7 @@ class WordProcessorApp(QWidget):
             if release_info:
                 # Tạo URL trực tiếp đến release mới nhất
                 latest_version = release_info['tag_name']
-                release_url = f"https://khoatran.io.vn/#QLVT"
+                release_url = f"https://zalo.me/g/tlbafe710"
                 
                 # Mở trực tiếp trình duyệt với URL release cụ thể
                 webbrowser.open(release_url)
