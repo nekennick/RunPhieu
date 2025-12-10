@@ -361,7 +361,7 @@ class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.current_version = "1.0.22"
+        self.current_version = "1.0.21"
         
         # Khởi tạo progress bar
         self.progress_bar = None
@@ -1595,72 +1595,31 @@ class AutoUpdater:
             print(f"[UPDATE] New exe: {new_exe_path}")
             
             
-            # Tạo PowerShell script
-            current_dir = os.path.dirname(current_exe)
-            temp_dir = os.environ.get('TEMP', '')
+            # Tạo PowerShell script đơn giản
             ps_script = f'''
 $newExe = "{new_exe_path}"
 $currentExe = "{current_exe}"
-$workingDir = "{current_dir}"
-$tempDir = "{temp_dir}"
-$processName = [System.IO.Path]::GetFileNameWithoutExtension($currentExe)
-
-Write-Host "[UPDATE] Đợi ứng dụng đóng..."
-Start-Sleep -Seconds 5
-
-# Đợi process đóng (tối đa 30 giây)
-$maxRetries = 15
-for ($i = 0; $i -lt $maxRetries; $i++) {{
-    $process = Get-Process -Name $processName -ErrorAction SilentlyContinue
-    if (-not $process) {{
-        Write-Host "[UPDATE] Ứng dụng đã đóng"
-        break
-    }}
-    Write-Host "[UPDATE] Ứng dụng vẫn đang chạy, đợi thêm..."
-    Start-Sleep -Seconds 2
-}}
-
-# Đợi thêm để _MEI folder được giải phóng hoàn toàn
-Write-Host "[UPDATE] Đợi giải phóng tài nguyên..."
-Start-Sleep -Seconds 5
-
-# Xóa các thư mục _MEI cũ
-Write-Host "[UPDATE] Dọn dẹp thư mục tạm cũ..."
-try {{
-    Get-ChildItem -Path $tempDir -Directory -Filter "_MEI*" -ErrorAction SilentlyContinue | 
-    Where-Object {{ $_.LastWriteTime -lt (Get-Date).AddMinutes(-1) }} |
-    ForEach-Object {{
-        try {{
-            Remove-Item -Path $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host "[UPDATE] Đã xóa: $($_.Name)"
-        }} catch {{ }}
-    }}
-}} catch {{
-    Write-Host "[UPDATE] Không thể dọn dẹp thư mục tạm (OK)"
-}}
 
 # Thay thế file
 try {{
-    Write-Host "[UPDATE] Đang thay thế file..."
     Copy-Item -Path $newExe -Destination $currentExe -Force
-    Write-Host "[UPDATE] Cập nhật thành công!"
-    
-    # Đợi để đảm bảo file copy hoàn tất
-    Start-Sleep -Seconds 3
-    
-    # Khởi động ứng dụng mới
-    Write-Host "[UPDATE] Khởi động ứng dụng mới..."
-    Set-Location -Path $workingDir
-    Start-Process -FilePath $currentExe
-    
-    # Xóa file tạm
-    Start-Sleep -Seconds 2
     Remove-Item -Path $newExe -Force -ErrorAction SilentlyContinue
     
-    Write-Host "[UPDATE] Hoàn tất!"
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "Cập nhật thành công!`n`nVui lòng mở lại ứng dụng.", 
+        "Hoàn tất cập nhật", 
+        [System.Windows.Forms.MessageBoxButtons]::OK, 
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
 }} catch {{
-    Write-Host "[UPDATE] Lỗi: $_"
-    Read-Host "Nhấn Enter để đóng"
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "Lỗi cập nhật: $_`n`nVui lòng tải và cài đặt thủ công.", 
+        "Lỗi cập nhật", 
+        [System.Windows.Forms.MessageBoxButtons]::OK, 
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    )
 }}
 '''
             
