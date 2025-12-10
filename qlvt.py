@@ -361,7 +361,7 @@ class WordProcessorApp(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.current_version = "1.0.22"
+        self.current_version = "1.0.21"
         
         # Khởi tạo progress bar
         self.progress_bar = None
@@ -965,7 +965,7 @@ class WordProcessorApp(QWidget):
             if self.updater.install_update(new_exe):
                 QMessageBox.information(
                     self, "Thành công", 
-                    "Đã tải xong bản cập nhật!\n\nỨng dụng sẽ đóng và khởi động lại."
+                    "Đã tải xong bản cập nhật!\n\nỨng dụng sẽ đóng.\nVui lòng khởi động lại ứng dụng."
                 )
                 dialog.accept()
                 QApplication.quit()
@@ -1595,32 +1595,15 @@ class AutoUpdater:
             print(f"[UPDATE] New exe: {new_exe_path}")
             
             
-            # Tạo PowerShell script đơn giản
+            # Tạo PowerShell script đơn giản - không hiển thị thông báo
             ps_script = f'''
 $newExe = "{new_exe_path}"
 $currentExe = "{current_exe}"
 
-# Thay thế file
 try {{
     Copy-Item -Path $newExe -Destination $currentExe -Force
     Remove-Item -Path $newExe -Force -ErrorAction SilentlyContinue
-    
-    Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show(
-        "Cập nhật thành công!`n`nVui lòng mở lại ứng dụng.", 
-        "Hoàn tất cập nhật", 
-        [System.Windows.Forms.MessageBoxButtons]::OK, 
-        [System.Windows.Forms.MessageBoxIcon]::Information
-    )
-}} catch {{
-    Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show(
-        "Lỗi cập nhật: $_`n`nVui lòng tải và cài đặt thủ công.", 
-        "Lỗi cập nhật", 
-        [System.Windows.Forms.MessageBoxButtons]::OK, 
-        [System.Windows.Forms.MessageBoxIcon]::Error
-    )
-}}
+}} catch {{ }}
 '''
             
             # Lưu script
