@@ -1626,7 +1626,8 @@ try {{
     
     # Khởi động ứng dụng mới với WorkingDirectory
     Write-Host "[UPDATE] Khởi động ứng dụng mới..."
-    Start-Process -FilePath $currentExe -WorkingDirectory $workingDir
+    Set-Location -Path $workingDir
+    Start-Process -FilePath $currentExe
     
     # Xóa file tạm
     Start-Sleep -Seconds 2
