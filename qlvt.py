@@ -1594,10 +1594,13 @@ class AutoUpdater:
             print(f"[UPDATE] Current exe: {current_exe}")
             print(f"[UPDATE] New exe: {new_exe_path}")
             
+            
             # Tạo PowerShell script
+            current_dir = os.path.dirname(current_exe)
             ps_script = f'''
 $newExe = "{new_exe_path}"
 $currentExe = "{current_exe}"
+$workingDir = "{current_dir}"
 $processName = [System.IO.Path]::GetFileNameWithoutExtension($currentExe)
 
 Write-Host "[UPDATE] Đợi ứng dụng đóng..."
@@ -1621,9 +1624,9 @@ try {{
     Copy-Item -Path $newExe -Destination $currentExe -Force
     Write-Host "[UPDATE] Cập nhật thành công!"
     
-    # Khởi động ứng dụng mới
+    # Khởi động ứng dụng mới với WorkingDirectory
     Write-Host "[UPDATE] Khởi động ứng dụng mới..."
-    Start-Process -FilePath $currentExe
+    Start-Process -FilePath $currentExe -WorkingDirectory $workingDir
     
     # Xóa file tạm
     Start-Sleep -Seconds 2
