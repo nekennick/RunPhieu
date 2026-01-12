@@ -1929,6 +1929,338 @@ class ExcelProcessorWorker(QThread):
 
 
 # ============================================================================
+# ACCOUNTING TAB - Tab Kế toán
+# ============================================================================
+
+class AccountingTab(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.is_initial_load = True
+        self.select_all_enabled = False
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout()
+        
+        layout.addWidget(QLabel("Danh sách file Word đang mở:"))
+        
+        self.file_list = QListWidget()
+        self.file_list.itemClicked.connect(self.toggle_item_check_state)
+        layout.addWidget(self.file_list)
+        
+        btn_layout = QHBoxLayout()
+        
+        self.refresh_btn = QPushButton("Load danh sách")
+        self.refresh_btn.clicked.connect(self.load_documents)
+        btn_layout.addWidget(self.refresh_btn)
+        
+        self.add_signature_btn = QPushButton("Bắt đầu thêm khung ký tên")
+        self.add_signature_btn.clicked.connect(self.add_signature_frame)
+        btn_layout.addWidget(self.add_signature_btn)
+        
+        self.print_btn = QPushButton("In phiếu đã chọn")
+        self.print_btn.clicked.connect(self.print_selected)
+        btn_layout.addWidget(self.print_btn)
+        
+        self.save_btn = QPushButton("Lưu tất cả file")
+        self.save_btn.clicked.connect(self.save_all_files)
+        btn_layout.addWidget(self.save_btn)
+        
+        self.close_btn = QPushButton("Đóng tất cả phiếu")
+        self.close_btn.clicked.connect(self.close_all_docs)
+        btn_layout.addWidget(self.close_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        layout.addWidget(QLabel(""))
+        layout.addWidget(QLabel("Cấu hình khung ký tên:"))
+        
+        form_layout = QHBoxLayout()
+        
+        left_form = QVBoxLayout()
+        left_form.addWidget(QLabel("Tiêu đề trái:"))
+        self.left_title = QLineEdit("NGƯỜI LẬP")
+        left_form.addWidget(self.left_title)
+        left_form.addWidget(QLabel("Tên người ký trái:"))
+        self.left_name = QLineEdit("Phạm Thị Kim Thoa")
+        left_form.addWidget(self.left_name)
+        
+        right_form = QVBoxLayout()
+        right_form.addWidget(QLabel("Tiêu đề phải:"))
+        self.right_title = QLineEdit("ĐỘI TRƯỞNG")
+        right_form.addWidget(self.right_title)
+        right_form.addWidget(QLabel("Tên người ký phải:"))
+        self.right_name = QLineEdit("Trương Hoài Thanh")
+        right_form.addWidget(self.right_name)
+        
+        form_layout.addLayout(left_form)
+        form_layout.addLayout(right_form)
+        layout.addLayout(form_layout)
+        
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: green;")
+        layout.addWidget(self.status_label)
+        
+        self.setLayout(layout)
+        
+        self.load_documents()
+    
+    def load_documents(self):
+        self.file_list.clear()
+        
+        if self.is_initial_load:
+            check_state = Qt.Checked
+        else:
+            check_state = Qt.Checked if self.select_all_enabled else Qt.Unchecked
+            self.select_all_enabled = not self.select_all_enabled
+        
+        try:
+            pythoncom.CoInitialize()
+            word = win32com.client.GetActiveObject("Word.Application")
+            
+            for doc in word.Documents:
+                item = QListWidgetItem(doc.Name)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(check_state)
+                item.setData(Qt.UserRole, doc.Name)
+                self.file_list.addItem(item)
+            
+            if self.file_list.count() == 0:
+                self.status_label.setText("Không có file Word nào đang mở")
+                self.status_label.setStyleSheet("color: orange;")
+            else:
+                self.status_label.setText(f"Đã tải {self.file_list.count()} file")
+                self.status_label.setStyleSheet("color: green;")
+                
+        except Exception as e:
+            self.status_label.setText(f"Lỗi: {str(e)}")
+            self.status_label.setStyleSheet("color: red;")
+        finally:
+            pythoncom.CoUninitialize()
+        
+        if self.is_initial_load:
+            self.is_initial_load = False
+    
+    def toggle_item_check_state(self, item):
+        if item.checkState() == Qt.Checked:
+            item.setCheckState(Qt.Unchecked)
+        else:
+            item.setCheckState(Qt.Checked)
+    
+    def add_signature_frame(self):
+        checked_items = [self.file_list.item(i) for i in range(self.file_list.count()) 
+                        if self.file_list.item(i).checkState() == Qt.Checked]
+        if not checked_items:
+            QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn ít nhất một file!")
+            return
+        
+        left_title = self.left_title.text().strip()
+        left_name = self.left_name.text().strip()
+        right_title = self.right_title.text().strip()
+        right_name = self.right_name.text().strip()
+        
+        try:
+            pythoncom.CoInitialize()
+            word = win32com.client.GetActiveObject("Word.Application")
+            
+            success_count = 0
+            for item in checked_items:
+                doc_name = item.data(Qt.UserRole)
+                try:
+                    doc = word.Documents(doc_name)
+                    self._add_signature_table(doc, left_title, left_name, right_title, right_name)
+                    success_count += 1
+                except Exception as e:
+                    print(f"Lỗi xử lý {doc_name}: {e}")
+            
+            self.status_label.setText(f"Đã thêm khung ký tên vào {success_count} file")
+            self.status_label.setStyleSheet("color: green;")
+            QMessageBox.information(self, "Thành công", f"Đã thêm khung ký tên vào {success_count} file!")
+            
+        except Exception as e:
+            self.status_label.setText(f"Lỗi: {str(e)}")
+            self.status_label.setStyleSheet("color: red;")
+            QMessageBox.critical(self, "Lỗi", f"Đã xảy ra lỗi: {str(e)}")
+        finally:
+            pythoncom.CoUninitialize()
+    
+    def _add_signature_table(self, doc, left_title, left_name, right_title, right_name):
+        rng = doc.Content
+        rng.Collapse(0)
+        
+        rng.InsertParagraphAfter()
+        rng.Collapse(0)
+        
+        table = doc.Tables.Add(rng, 3, 3)
+        
+        for row in table.Rows:
+            for cell in row.Cells:
+                for border_id in [1, 2, 3, 4]:
+                    cell.Borders(border_id).LineStyle = 0
+        
+        table.Rows(1).Cells(1).Range.Text = left_title
+        table.Rows(1).Cells(1).Range.Font.Name = "Times New Roman"
+        table.Rows(1).Cells(1).Range.Font.Size = 9
+        table.Rows(1).Cells(1).Range.Bold = True
+        table.Rows(1).Cells(1).Range.ParagraphFormat.Alignment = 1
+        
+        table.Rows(1).Cells(3).Range.Text = right_title
+        table.Rows(1).Cells(3).Range.Font.Name = "Times New Roman"
+        table.Rows(1).Cells(3).Range.Font.Size = 9
+        table.Rows(1).Cells(3).Range.Bold = True
+        table.Rows(1).Cells(3).Range.ParagraphFormat.Alignment = 1
+        
+        table.Rows(2).Height = 50
+        
+        table.Rows(3).Cells(1).Range.Text = left_name
+        table.Rows(3).Cells(1).Range.Font.Name = "Times New Roman"
+        table.Rows(3).Cells(1).Range.Font.Size = 9
+        table.Rows(3).Cells(1).Range.Bold = True
+        table.Rows(3).Cells(1).Range.ParagraphFormat.Alignment = 1
+        
+        table.Rows(3).Cells(3).Range.Text = right_name
+        table.Rows(3).Cells(3).Range.Font.Name = "Times New Roman"
+        table.Rows(3).Cells(3).Range.Font.Size = 9
+        table.Rows(3).Cells(3).Range.Bold = True
+        table.Rows(3).Cells(3).Range.ParagraphFormat.Alignment = 1
+        
+        table.Columns(1).PreferredWidthType = 2
+        table.Columns(1).PreferredWidth = 35
+        table.Columns(2).PreferredWidthType = 2
+        table.Columns(2).PreferredWidth = 30
+        table.Columns(3).PreferredWidthType = 2
+        table.Columns(3).PreferredWidth = 35
+    
+    def print_selected(self):
+        checked_files = [self.file_list.item(i).text() for i in range(self.file_list.count()) 
+                        if self.file_list.item(i).checkState() == Qt.Checked]
+        
+        if not checked_files:
+            self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để in.")
+            self.status_label.setStyleSheet("color: orange;")
+            return
+        
+        modifiers = QApplication.keyboardModifiers()
+        if modifiers == Qt.ShiftModifier:
+            output_folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu file PDF")
+            if not output_folder:
+                return
+            action_mode = "save_pdf"
+        else:
+            output_folder = None
+            action_mode = "print"
+        
+        if action_mode == "save_pdf":
+            self.status_label.setText("⏳ Đang lưu PDF trang đầu...")
+        else:
+            self.status_label.setText("⏳ Đang in trang đầu...")
+        self.status_label.setStyleSheet("color: blue;")
+        
+        self.print_thread = PrintWorker(checked_files, output_folder=output_folder, action_mode=action_mode)
+        self.print_thread.finished.connect(self._on_print_finished)
+        self.print_thread.start()
+    
+    def _on_print_finished(self, result):
+        if "thành công" in result.lower() or "✅" in result:
+            self.status_label.setText("✅ " + result)
+            self.status_label.setStyleSheet("color: green;")
+        else:
+            self.status_label.setText(result)
+            self.status_label.setStyleSheet("color: red;")
+    
+    def save_all_files(self):
+        folder_path = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu file")
+        if not folder_path:
+            return
+        
+        checked_files = [self.file_list.item(i).text() for i in range(self.file_list.count()) 
+                        if self.file_list.item(i).checkState() == Qt.Checked]
+        
+        if not checked_files:
+            self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để lưu.")
+            self.status_label.setStyleSheet("color: orange;")
+            return
+        
+        self.status_label.setText("⏳ Đang lưu file...")
+        self.status_label.setStyleSheet("color: blue;")
+        
+        self.save_thread = SaveAsWorker(checked_files, folder_path)
+        self.save_thread.finished.connect(self._on_save_finished)
+        self.save_thread.start()
+    
+    def _on_save_finished(self, result):
+        if "thành công" in result.lower() or "✅" in result:
+            self.status_label.setText("✅ " + result)
+            self.status_label.setStyleSheet("color: green;")
+        else:
+            self.status_label.setText(result)
+            self.status_label.setStyleSheet("color: red;")
+    
+    def close_all_docs(self):
+        try:
+            pythoncom.CoInitialize()
+            word_app = win32com.client.GetActiveObject("Word.Application")
+            doc_count = word_app.Documents.Count
+            
+            if doc_count > 0:
+                reply = QMessageBox.question(
+                    self, "Xác nhận đóng tất cả phiếu",
+                    f"Hiện có {doc_count} phiếu trong danh sách.\n\nBạn có chắc chắn muốn đóng tất cả?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                )
+                
+                if reply != QMessageBox.Yes:
+                    self.status_label.setText("⚠️ Đã hủy đóng phiếu.")
+                    self.status_label.setStyleSheet("color: orange;")
+                    return
+                
+                while word_app.Documents.Count > 0:
+                    doc = word_app.Documents.Item(1)
+                    doc.Close(SaveChanges=False)
+                
+                word_app.Quit()
+                self.status_label.setText(f"✅ Đã đóng {doc_count} phiếu và thoát Word.")
+                self.status_label.setStyleSheet("color: green;")
+                self.load_documents()
+            else:
+                self.status_label.setText("⚠️ Không có tài liệu Word nào đang mở.")
+                self.status_label.setStyleSheet("color: orange;")
+        except Exception as e:
+            self.status_label.setText(f"Lỗi: {str(e)}")
+            self.status_label.setStyleSheet("color: red;")
+        finally:
+            pythoncom.CoUninitialize()
+
+
+# ============================================================================
+# MAIN WINDOW - Cửa sổ chính với tabs
+# ============================================================================
+
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        
+        self.setWindowTitle("Công cụ xử lý và lưu trữ phiếu nhập xuất kho 1.0.22 | www.khoatran.io.vn")
+        self.setGeometry(200, 200, 650, 500)
+        
+        icon = QIcon("icon.ico")
+        self.setWindowIcon(icon)
+        
+        layout = QVBoxLayout()
+        
+        self.tabs = QTabWidget()
+        
+        self.word_processor_tab = WordProcessorApp()
+        self.tabs.addTab(self.word_processor_tab, "Xử lý phiếu")
+        
+        self.accounting_tab = AccountingTab()
+        self.tabs.addTab(self.accounting_tab, "Kế toán")
+        
+        layout.addWidget(self.tabs)
+        self.setLayout(layout)
+
+
+# ============================================================================
 # MAIN APPLICATION
 # ============================================================================
 
@@ -1936,6 +2268,7 @@ class ExcelProcessorWorker(QThread):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = WordProcessorApp()
+    window = MainWindow()
     window.show()
     sys.exit(app.exec_())
+
