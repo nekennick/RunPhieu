@@ -2233,6 +2233,194 @@ class AccountingTab(QWidget):
 
 
 # ============================================================================
+# BATCH PRINT TAB - Tab In hàng loạt phiếu thu - chi
+# ============================================================================
+
+class BatchPrintTab(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.folder_path = None
+        self.select_all_enabled = True
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout()
+        
+        layout.addWidget(QLabel("Danh sách file Word trong thư mục:"))
+        
+        self.file_list = QListWidget()
+        self.file_list.itemClicked.connect(self.toggle_item_check_state)
+        layout.addWidget(self.file_list)
+        
+        btn_layout = QHBoxLayout()
+        
+        self.load_folder_btn = QPushButton("Load thư mục phiếu")
+        self.load_folder_btn.clicked.connect(self.load_folder)
+        btn_layout.addWidget(self.load_folder_btn)
+        
+        self.reload_btn = QPushButton("Reload")
+        self.reload_btn.clicked.connect(self.reload_toggle)
+        btn_layout.addWidget(self.reload_btn)
+        
+        self.print_all_btn = QPushButton("In tất cả phiếu")
+        self.print_all_btn.clicked.connect(self.print_all_files)
+        btn_layout.addWidget(self.print_all_btn)
+        
+        self.mark_printed_btn = QPushButton("Đánh dấu đã in")
+        self.mark_printed_btn.clicked.connect(self.mark_as_printed)
+        btn_layout.addWidget(self.mark_printed_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        self.folder_label = QLabel("Chưa chọn thư mục")
+        self.folder_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(self.folder_label)
+        
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: green;")
+        layout.addWidget(self.status_label)
+        
+        self.setLayout(layout)
+    
+    def toggle_item_check_state(self, item):
+        if item.checkState() == Qt.Checked:
+            item.setCheckState(Qt.Unchecked)
+        else:
+            item.setCheckState(Qt.Checked)
+    
+    def load_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục chứa phiếu")
+        if not folder:
+            return
+        
+        self.folder_path = folder
+        self.folder_label.setText(f"📁 {folder}")
+        self.folder_label.setStyleSheet("color: #333;")
+        
+        self.file_list.clear()
+        
+        word_files = []
+        for f in os.listdir(folder):
+            if f.lower().endswith(('.doc', '.docx', '.rtf')) and not f.startswith('~$'):
+                word_files.append(f)
+        
+        for f in sorted(word_files):
+            item = QListWidgetItem(f)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked)
+            item.setData(Qt.UserRole, os.path.join(folder, f))
+            self.file_list.addItem(item)
+        
+        if word_files:
+            self.status_label.setText(f"Đã tải {len(word_files)} file Word")
+            self.status_label.setStyleSheet("color: green;")
+        else:
+            self.status_label.setText("Không tìm thấy file Word nào trong thư mục")
+            self.status_label.setStyleSheet("color: orange;")
+    
+    def print_all_files(self):
+        checked_files = [self.file_list.item(i).data(Qt.UserRole) 
+                        for i in range(self.file_list.count()) 
+                        if self.file_list.item(i).checkState() == Qt.Checked]
+        
+        if not checked_files:
+            self.status_label.setText("⚠️ Bạn chưa chọn file nào để in.")
+            self.status_label.setStyleSheet("color: orange;")
+            return
+        
+        reply = QMessageBox.question(
+            self, "Xác nhận in",
+            f"Bạn có chắc muốn in {len(checked_files)} file?\n\n(In toàn bộ nội dung mỗi file)",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        self.status_label.setText("⏳ Đang in...")
+        self.status_label.setStyleSheet("color: blue;")
+        QApplication.processEvents()
+        
+        try:
+            pythoncom.CoInitialize()
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            
+            success_count = 0
+            for file_path in checked_files:
+                try:
+                    doc = word.Documents.Open(file_path)
+                    doc.PrintOut()
+                    doc.Close(SaveChanges=False)
+                    success_count += 1
+                except Exception as e:
+                    print(f"Lỗi in {file_path}: {e}")
+            
+            word.Quit()
+            
+            self.status_label.setText(f"✅ Đã in thành công {success_count}/{len(checked_files)} file")
+            self.status_label.setStyleSheet("color: green;")
+            QMessageBox.information(self, "Hoàn thành", f"Đã in thành công {success_count} file!")
+            
+        except Exception as e:
+            self.status_label.setText(f"Lỗi: {str(e)}")
+            self.status_label.setStyleSheet("color: red;")
+        finally:
+            pythoncom.CoUninitialize()
+    
+    def mark_as_printed(self):
+        checked_items = [(i, self.file_list.item(i)) for i in range(self.file_list.count()) 
+                        if self.file_list.item(i).checkState() == Qt.Checked]
+        
+        if not checked_items:
+            self.status_label.setText("⚠️ Bạn chưa chọn file nào.")
+            self.status_label.setStyleSheet("color: orange;")
+            return
+        
+        success_count = 0
+        for idx, item in checked_items:
+            old_path = item.data(Qt.UserRole)
+            old_name = os.path.basename(old_path)
+            folder = os.path.dirname(old_path)
+            
+            name_without_ext = os.path.splitext(old_name)[0]
+            ext = os.path.splitext(old_name)[1]
+            
+            if name_without_ext.endswith(" - Đã in"):
+                continue
+            
+            new_name = name_without_ext + " - Đã in" + ext
+            new_path = os.path.join(folder, new_name)
+            
+            try:
+                os.rename(old_path, new_path)
+                item.setText(new_name)
+                item.setData(Qt.UserRole, new_path)
+                item.setCheckState(Qt.Unchecked)
+                success_count += 1
+            except Exception as e:
+                print(f"Lỗi đổi tên {old_name}: {e}")
+        
+        self.status_label.setText(f"✅ Đã đánh dấu {success_count} file")
+        self.status_label.setStyleSheet("color: green;")
+    
+    def reload_toggle(self):
+        checked_count = sum(1 for i in range(self.file_list.count()) 
+                           if self.file_list.item(i).checkState() == Qt.Checked)
+        total_count = self.file_list.count()
+        
+        if checked_count == total_count:
+            for i in range(self.file_list.count()):
+                self.file_list.item(i).setCheckState(Qt.Unchecked)
+            self.status_label.setText("✅ Đã bỏ chọn tất cả")
+        else:
+            for i in range(self.file_list.count()):
+                self.file_list.item(i).setCheckState(Qt.Checked)
+            self.status_label.setText("✅ Đã chọn tất cả")
+        self.status_label.setStyleSheet("color: green;")
+
+
+# ============================================================================
 # MAIN WINDOW - Cửa sổ chính với tabs
 # ============================================================================
 
@@ -2255,6 +2443,9 @@ class MainWindow(QWidget):
         
         self.accounting_tab = AccountingTab()
         self.tabs.addTab(self.accounting_tab, "Kế toán")
+        
+        self.batch_print_tab = BatchPrintTab()
+        self.tabs.addTab(self.batch_print_tab, "In hàng loạt phiếu thu - chi")
         
         layout.addWidget(self.tabs)
         self.setLayout(layout)
