@@ -2083,10 +2083,7 @@ class AccountingTab(QWidget):
         invalid_files = [item.text() for item in checked_items 
                         if "Chứng_từ_ghi" not in item.text()]
         if invalid_files:
-            QMessageBox.warning(self, "Cảnh báo", 
-                f"Chỉ thêm khung ký tên cho file Chứng từ ghi sổ!\n\n"
-                f"Các file không hợp lệ:\n{chr(10).join(invalid_files[:5])}"
-                + (f"\n... và {len(invalid_files) - 5} file khác" if len(invalid_files) > 5 else ""))
+            QMessageBox.warning(self, "Cảnh báo", "Chỉ thêm khung ký tên cho file Chứng từ ghi sổ!")
             return
         
         dialog = SignatureDialog(self)
@@ -2201,9 +2198,6 @@ class AccountingTab(QWidget):
             msg_box.setIcon(QMessageBox.Warning)
             msg_box.setWindowTitle("Cảnh báo")
             msg_box.setText("Đảm bảo chứng từ đã thêm khung ký tên trước khi in!")
-            msg_box.setInformativeText(
-                f"Các file cần thêm khung ký tên:\n{chr(10).join(chungtu_files[:5])}"
-                + (f"\n... và {len(chungtu_files) - 5} file khác" if len(chungtu_files) > 5 else ""))
             
             start_btn = msg_box.addButton("Bắt đầu in", QMessageBox.AcceptRole)
             cancel_btn = msg_box.addButton("Hủy", QMessageBox.RejectRole)
