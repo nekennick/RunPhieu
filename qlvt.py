@@ -419,29 +419,6 @@ class WordProcessorApp(QWidget):
         self.print_button = QPushButton("In phiếu đã chọn")
         self.print_button.clicked.connect(self.print_first_pages)
         button_layout.addWidget(self.print_button)
-        
-        # Thêm dòng hiển thị thông tin máy in
-        printer_info_layout = QHBoxLayout()
-        printer_info_layout.addStretch()
-        
-        # Label hiển thị tên máy in
-        self.printer_label = QLabel()
-        self.printer_label.setStyleSheet("color: gray;")
-        self.update_printer_info()
-        
-        # Nút chọn máy in
-        select_printer_btn = QPushButton("🖨️")
-        select_printer_btn.setToolTip("Chọn máy in")
-        select_printer_btn.setFixedWidth(30)
-        select_printer_btn.setStyleSheet("QPushButton { font-size: 14px; }")
-        select_printer_btn.clicked.connect(self.select_printer)
-        
-        printer_info_layout.addWidget(QLabel("Máy in:"))
-        printer_info_layout.addWidget(self.printer_label)
-        printer_info_layout.addWidget(select_printer_btn)
-        
-        # Thêm dòng thông tin máy in vào layout chính
-        self.layout.addLayout(printer_info_layout)
 
         self.save_as_button = QPushButton("Lưu tất cả file")
         self.save_as_button.clicked.connect(self.save_all_files_as)
@@ -1929,51 +1906,21 @@ class ExcelProcessorWorker(QThread):
 
 
 # ============================================================================
-# ACCOUNTING TAB - Tab Kế toán
+# SIGNATURE DIALOG - Dialog nhập thông tin khung ký tên
 # ============================================================================
 
-class AccountingTab(QWidget):
+class SignatureDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.is_initial_load = True
-        self.select_all_enabled = False
+        self.setWindowTitle("Cấu hình khung ký tên")
+        self.setModal(True)
+        self.setFixedWidth(400)
         self.init_ui()
     
     def init_ui(self):
         layout = QVBoxLayout()
         
-        layout.addWidget(QLabel("Danh sách file Word đang mở:"))
-        
-        self.file_list = QListWidget()
-        self.file_list.itemClicked.connect(self.toggle_item_check_state)
-        layout.addWidget(self.file_list)
-        
-        btn_layout = QHBoxLayout()
-        
-        self.refresh_btn = QPushButton("Load danh sách")
-        self.refresh_btn.clicked.connect(self.load_documents)
-        btn_layout.addWidget(self.refresh_btn)
-        
-        self.add_signature_btn = QPushButton("Bắt đầu thêm khung ký tên")
-        self.add_signature_btn.clicked.connect(self.add_signature_frame)
-        btn_layout.addWidget(self.add_signature_btn)
-        
-        self.print_btn = QPushButton("In phiếu đã chọn")
-        self.print_btn.clicked.connect(self.print_selected)
-        btn_layout.addWidget(self.print_btn)
-        
-        self.save_btn = QPushButton("Lưu tất cả file")
-        self.save_btn.clicked.connect(self.save_all_files)
-        btn_layout.addWidget(self.save_btn)
-        
-        self.close_btn = QPushButton("Đóng tất cả phiếu")
-        self.close_btn.clicked.connect(self.close_all_docs)
-        btn_layout.addWidget(self.close_btn)
-        
-        layout.addLayout(btn_layout)
-        
-        layout.addWidget(QLabel(""))
-        layout.addWidget(QLabel("Cấu hình khung ký tên:"))
+        layout.addWidget(QLabel("Nhập thông tin khung ký tên:"))
         
         form_layout = QHBoxLayout()
         
@@ -1997,49 +1944,128 @@ class AccountingTab(QWidget):
         form_layout.addLayout(right_form)
         layout.addLayout(form_layout)
         
+        btn_layout = QHBoxLayout()
+        
+        self.start_btn = QPushButton("Bắt đầu")
+        self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 20px;")
+        self.start_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(self.start_btn)
+        
+        self.cancel_btn = QPushButton("Hủy")
+        self.cancel_btn.setStyleSheet("padding: 8px 20px;")
+        self.cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(self.cancel_btn)
+        
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+    
+    def get_values(self):
+        return {
+            'left_title': self.left_title.text().strip(),
+            'left_name': self.left_name.text().strip(),
+            'right_title': self.right_title.text().strip(),
+            'right_name': self.right_name.text().strip()
+        }
+
+
+# ============================================================================
+# ACCOUNTING TAB - Tab Kế toán
+# ============================================================================
+
+class AccountingTab(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.folder_path = None
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout()
+        
+        layout.addWidget(QLabel("Danh sách file Word trong thư mục:"))
+        
+        self.file_list = QListWidget()
+        self.file_list.itemClicked.connect(self.toggle_item_check_state)
+        layout.addWidget(self.file_list)
+        
+        btn_layout = QHBoxLayout()
+        
+        self.load_folder_btn = QPushButton("Load thư mục")
+        self.load_folder_btn.clicked.connect(self.load_folder)
+        btn_layout.addWidget(self.load_folder_btn)
+        
+        self.reload_btn = QPushButton("Reload")
+        self.reload_btn.clicked.connect(self.reload_toggle)
+        btn_layout.addWidget(self.reload_btn)
+        
+        self.add_signature_btn = QPushButton("Thêm khung ký tên")
+        self.add_signature_btn.clicked.connect(self.add_signature_frame)
+        btn_layout.addWidget(self.add_signature_btn)
+        
+        self.print_all_btn = QPushButton("In tất cả phiếu")
+        self.print_all_btn.clicked.connect(self.print_all_files)
+        btn_layout.addWidget(self.print_all_btn)
+        
+        self.mark_printed_btn = QPushButton("Đánh dấu đã in")
+        self.mark_printed_btn.clicked.connect(self.mark_as_printed)
+        btn_layout.addWidget(self.mark_printed_btn)
+        
+        layout.addLayout(btn_layout)
+        
+        self.folder_label = QLabel("Chưa chọn thư mục")
+        self.folder_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(self.folder_label)
+        
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: green;")
         layout.addWidget(self.status_label)
         
         self.setLayout(layout)
-        
-        self.load_documents()
     
-    def load_documents(self):
+    def load_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục chứa file Word")
+        if not folder:
+            return
+        
+        self.folder_path = folder
+        self.folder_label.setText(f"📁 {folder}")
+        self.folder_label.setStyleSheet("color: #333;")
+        
         self.file_list.clear()
         
-        if self.is_initial_load:
-            check_state = Qt.Checked
+        word_files = []
+        for f in os.listdir(folder):
+            if f.lower().endswith(('.doc', '.docx', '.rtf')) and not f.startswith('~$'):
+                word_files.append(f)
+        
+        for f in sorted(word_files):
+            item = QListWidgetItem(f)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked)
+            full_path = os.path.abspath(os.path.join(folder, f)).replace('/', '\\')
+            item.setData(Qt.UserRole, full_path)
+            self.file_list.addItem(item)
+        
+        if word_files:
+            self.status_label.setText(f"Đã tải {len(word_files)} file Word")
+            self.status_label.setStyleSheet("color: green;")
         else:
-            check_state = Qt.Checked if self.select_all_enabled else Qt.Unchecked
-            self.select_all_enabled = not self.select_all_enabled
+            self.status_label.setText("Không tìm thấy file Word nào trong thư mục")
+            self.status_label.setStyleSheet("color: orange;")
+    
+    def reload_toggle(self):
+        checked_count = sum(1 for i in range(self.file_list.count()) 
+                           if self.file_list.item(i).checkState() == Qt.Checked)
+        total_count = self.file_list.count()
         
-        try:
-            pythoncom.CoInitialize()
-            word = win32com.client.GetActiveObject("Word.Application")
-            
-            for doc in word.Documents:
-                item = QListWidgetItem(doc.Name)
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                item.setCheckState(check_state)
-                item.setData(Qt.UserRole, doc.Name)
-                self.file_list.addItem(item)
-            
-            if self.file_list.count() == 0:
-                self.status_label.setText("Không có file Word nào đang mở")
-                self.status_label.setStyleSheet("color: orange;")
-            else:
-                self.status_label.setText(f"Đã tải {self.file_list.count()} file")
-                self.status_label.setStyleSheet("color: green;")
-                
-        except Exception as e:
-            self.status_label.setText(f"Lỗi: {str(e)}")
-            self.status_label.setStyleSheet("color: red;")
-        finally:
-            pythoncom.CoUninitialize()
-        
-        if self.is_initial_load:
-            self.is_initial_load = False
+        if checked_count == total_count:
+            for i in range(self.file_list.count()):
+                self.file_list.item(i).setCheckState(Qt.Unchecked)
+            self.status_label.setText("✅ Đã bỏ chọn tất cả")
+        else:
+            for i in range(self.file_list.count()):
+                self.file_list.item(i).setCheckState(Qt.Checked)
+            self.status_label.setText("✅ Đã chọn tất cả")
+        self.status_label.setStyleSheet("color: green;")
     
     def toggle_item_check_state(self, item):
         if item.checkState() == Qt.Checked:
@@ -2054,26 +2080,49 @@ class AccountingTab(QWidget):
             QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn ít nhất một file!")
             return
         
-        left_title = self.left_title.text().strip()
-        left_name = self.left_name.text().strip()
-        right_title = self.right_title.text().strip()
-        right_name = self.right_name.text().strip()
+        invalid_files = [item.text() for item in checked_items 
+                        if "Chứng_từ_ghi" not in item.text()]
+        if invalid_files:
+            QMessageBox.warning(self, "Cảnh báo", 
+                f"Chỉ thêm khung ký tên cho file Chứng từ ghi sổ!\n\n"
+                f"Các file không hợp lệ:\n{chr(10).join(invalid_files[:5])}"
+                + (f"\n... và {len(invalid_files) - 5} file khác" if len(invalid_files) > 5 else ""))
+            return
+        
+        dialog = SignatureDialog(self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        
+        values = dialog.get_values()
+        left_title = values['left_title']
+        left_name = values['left_name']
+        right_title = values['right_title']
+        right_name = values['right_name']
+        
+        self.status_label.setText("⏳ Đang xử lý...")
+        self.status_label.setStyleSheet("color: blue;")
+        QApplication.processEvents()
         
         try:
             pythoncom.CoInitialize()
-            word = win32com.client.GetActiveObject("Word.Application")
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
             
             success_count = 0
             for item in checked_items:
-                doc_name = item.data(Qt.UserRole)
+                file_path = item.data(Qt.UserRole)
                 try:
-                    doc = word.Documents(doc_name)
+                    doc = word.Documents.Open(file_path)
                     self._add_signature_table(doc, left_title, left_name, right_title, right_name)
+                    doc.Save()
+                    doc.Close()
                     success_count += 1
                 except Exception as e:
-                    print(f"Lỗi xử lý {doc_name}: {e}")
+                    print(f"Lỗi xử lý {file_path}: {e}")
             
-            self.status_label.setText(f"Đã thêm khung ký tên vào {success_count} file")
+            word.Quit()
+            
+            self.status_label.setText(f"✅ Đã thêm khung ký tên vào {success_count} file")
             self.status_label.setStyleSheet("color: green;")
             QMessageBox.information(self, "Thành công", f"Đã thêm khung ký tên vào {success_count} file!")
             
@@ -2130,193 +2179,10 @@ class AccountingTab(QWidget):
         table.Columns(2).PreferredWidth = 30
         table.Columns(3).PreferredWidthType = 2
         table.Columns(3).PreferredWidth = 35
-    
-    def print_selected(self):
-        checked_files = [self.file_list.item(i).text() for i in range(self.file_list.count()) 
-                        if self.file_list.item(i).checkState() == Qt.Checked]
         
-        if not checked_files:
-            self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để in.")
-            self.status_label.setStyleSheet("color: orange;")
-            return
-        
-        modifiers = QApplication.keyboardModifiers()
-        if modifiers == Qt.ShiftModifier:
-            output_folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu file PDF")
-            if not output_folder:
-                return
-            action_mode = "save_pdf"
-        else:
-            output_folder = None
-            action_mode = "print"
-        
-        if action_mode == "save_pdf":
-            self.status_label.setText("⏳ Đang lưu PDF trang đầu...")
-        else:
-            self.status_label.setText("⏳ Đang in trang đầu...")
-        self.status_label.setStyleSheet("color: blue;")
-        
-        self.print_thread = PrintWorker(checked_files, output_folder=output_folder, action_mode=action_mode)
-        self.print_thread.finished.connect(self._on_print_finished)
-        self.print_thread.start()
-    
-    def _on_print_finished(self, result):
-        if "thành công" in result.lower() or "✅" in result:
-            self.status_label.setText("✅ " + result)
-            self.status_label.setStyleSheet("color: green;")
-        else:
-            self.status_label.setText(result)
-            self.status_label.setStyleSheet("color: red;")
-    
-    def save_all_files(self):
-        folder_path = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu file")
-        if not folder_path:
-            return
-        
-        checked_files = [self.file_list.item(i).text() for i in range(self.file_list.count()) 
-                        if self.file_list.item(i).checkState() == Qt.Checked]
-        
-        if not checked_files:
-            self.status_label.setText("⚠️ Bạn chưa chọn tài liệu nào để lưu.")
-            self.status_label.setStyleSheet("color: orange;")
-            return
-        
-        self.status_label.setText("⏳ Đang lưu file...")
-        self.status_label.setStyleSheet("color: blue;")
-        
-        self.save_thread = SaveAsWorker(checked_files, folder_path)
-        self.save_thread.finished.connect(self._on_save_finished)
-        self.save_thread.start()
-    
-    def _on_save_finished(self, result):
-        if "thành công" in result.lower() or "✅" in result:
-            self.status_label.setText("✅ " + result)
-            self.status_label.setStyleSheet("color: green;")
-        else:
-            self.status_label.setText(result)
-            self.status_label.setStyleSheet("color: red;")
-    
-    def close_all_docs(self):
-        try:
-            pythoncom.CoInitialize()
-            word_app = win32com.client.GetActiveObject("Word.Application")
-            doc_count = word_app.Documents.Count
-            
-            if doc_count > 0:
-                reply = QMessageBox.question(
-                    self, "Xác nhận đóng tất cả phiếu",
-                    f"Hiện có {doc_count} phiếu trong danh sách.\n\nBạn có chắc chắn muốn đóng tất cả?",
-                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-                )
-                
-                if reply != QMessageBox.Yes:
-                    self.status_label.setText("⚠️ Đã hủy đóng phiếu.")
-                    self.status_label.setStyleSheet("color: orange;")
-                    return
-                
-                while word_app.Documents.Count > 0:
-                    doc = word_app.Documents.Item(1)
-                    doc.Close(SaveChanges=False)
-                
-                word_app.Quit()
-                self.status_label.setText(f"✅ Đã đóng {doc_count} phiếu và thoát Word.")
-                self.status_label.setStyleSheet("color: green;")
-                self.load_documents()
-            else:
-                self.status_label.setText("⚠️ Không có tài liệu Word nào đang mở.")
-                self.status_label.setStyleSheet("color: orange;")
-        except Exception as e:
-            self.status_label.setText(f"Lỗi: {str(e)}")
-            self.status_label.setStyleSheet("color: red;")
-        finally:
-            pythoncom.CoUninitialize()
-
-
-# ============================================================================
-# BATCH PRINT TAB - Tab In hàng loạt phiếu thu - chi
-# ============================================================================
-
-class BatchPrintTab(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.folder_path = None
-        self.select_all_enabled = True
-        self.init_ui()
-    
-    def init_ui(self):
-        layout = QVBoxLayout()
-        
-        layout.addWidget(QLabel("Danh sách file Word trong thư mục:"))
-        
-        self.file_list = QListWidget()
-        self.file_list.itemClicked.connect(self.toggle_item_check_state)
-        layout.addWidget(self.file_list)
-        
-        btn_layout = QHBoxLayout()
-        
-        self.load_folder_btn = QPushButton("Load thư mục phiếu")
-        self.load_folder_btn.clicked.connect(self.load_folder)
-        btn_layout.addWidget(self.load_folder_btn)
-        
-        self.reload_btn = QPushButton("Reload")
-        self.reload_btn.clicked.connect(self.reload_toggle)
-        btn_layout.addWidget(self.reload_btn)
-        
-        self.print_all_btn = QPushButton("In tất cả phiếu")
-        self.print_all_btn.clicked.connect(self.print_all_files)
-        btn_layout.addWidget(self.print_all_btn)
-        
-        self.mark_printed_btn = QPushButton("Đánh dấu đã in")
-        self.mark_printed_btn.clicked.connect(self.mark_as_printed)
-        btn_layout.addWidget(self.mark_printed_btn)
-        
-        layout.addLayout(btn_layout)
-        
-        self.folder_label = QLabel("Chưa chọn thư mục")
-        self.folder_label.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(self.folder_label)
-        
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: green;")
-        layout.addWidget(self.status_label)
-        
-        self.setLayout(layout)
-    
-    def toggle_item_check_state(self, item):
-        if item.checkState() == Qt.Checked:
-            item.setCheckState(Qt.Unchecked)
-        else:
-            item.setCheckState(Qt.Checked)
-    
-    def load_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục chứa phiếu")
-        if not folder:
-            return
-        
-        self.folder_path = folder
-        self.folder_label.setText(f"📁 {folder}")
-        self.folder_label.setStyleSheet("color: #333;")
-        
-        self.file_list.clear()
-        
-        word_files = []
-        for f in os.listdir(folder):
-            if f.lower().endswith(('.doc', '.docx', '.rtf')) and not f.startswith('~$'):
-                word_files.append(f)
-        
-        for f in sorted(word_files):
-            item = QListWidgetItem(f)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked)
-            item.setData(Qt.UserRole, os.path.join(folder, f))
-            self.file_list.addItem(item)
-        
-        if word_files:
-            self.status_label.setText(f"Đã tải {len(word_files)} file Word")
-            self.status_label.setStyleSheet("color: green;")
-        else:
-            self.status_label.setText("Không tìm thấy file Word nào trong thư mục")
-            self.status_label.setStyleSheet("color: orange;")
+        for section in doc.Sections:
+            for footer in section.Footers:
+                footer.Range.Delete()
     
     def print_all_files(self):
         checked_files = [self.file_list.item(i).data(Qt.UserRole) 
@@ -2327,6 +2193,26 @@ class BatchPrintTab(QWidget):
             self.status_label.setText("⚠️ Bạn chưa chọn file nào để in.")
             self.status_label.setStyleSheet("color: orange;")
             return
+        
+        chungtu_files = [os.path.basename(f) for f in checked_files 
+                        if "Chứng_từ_ghi" in os.path.basename(f)]
+        if chungtu_files:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("Cảnh báo")
+            msg_box.setText("Đảm bảo chứng từ đã thêm khung ký tên trước khi in!")
+            msg_box.setInformativeText(
+                f"Các file cần thêm khung ký tên:\n{chr(10).join(chungtu_files[:5])}"
+                + (f"\n... và {len(chungtu_files) - 5} file khác" if len(chungtu_files) > 5 else ""))
+            
+            start_btn = msg_box.addButton("Bắt đầu in", QMessageBox.AcceptRole)
+            cancel_btn = msg_box.addButton("Hủy", QMessageBox.RejectRole)
+            msg_box.setDefaultButton(cancel_btn)
+            
+            msg_box.exec_()
+            
+            if msg_box.clickedButton() != start_btn:
+                return
         
         reply = QMessageBox.question(
             self, "Xác nhận in",
@@ -2350,7 +2236,7 @@ class BatchPrintTab(QWidget):
             for file_path in checked_files:
                 try:
                     doc = word.Documents.Open(file_path)
-                    doc.PrintOut()
+                    doc.PrintOut(Background=False)
                     doc.Close(SaveChanges=False)
                     success_count += 1
                 except Exception as e:
@@ -2403,21 +2289,11 @@ class BatchPrintTab(QWidget):
         
         self.status_label.setText(f"✅ Đã đánh dấu {success_count} file")
         self.status_label.setStyleSheet("color: green;")
-    
-    def reload_toggle(self):
-        checked_count = sum(1 for i in range(self.file_list.count()) 
-                           if self.file_list.item(i).checkState() == Qt.Checked)
-        total_count = self.file_list.count()
-        
-        if checked_count == total_count:
-            for i in range(self.file_list.count()):
-                self.file_list.item(i).setCheckState(Qt.Unchecked)
-            self.status_label.setText("✅ Đã bỏ chọn tất cả")
-        else:
-            for i in range(self.file_list.count()):
-                self.file_list.item(i).setCheckState(Qt.Checked)
-            self.status_label.setText("✅ Đã chọn tất cả")
-        self.status_label.setStyleSheet("color: green;")
+
+
+# ============================================================================
+# BATCH PRINT TAB - Tab In hàng loạt phiếu thu - chi (ĐÃ GỘP VÀO ACCOUNTING TAB)
+# ============================================================================
 
 
 # ============================================================================
@@ -2439,16 +2315,71 @@ class MainWindow(QWidget):
         self.tabs = QTabWidget()
         
         self.word_processor_tab = WordProcessorApp()
-        self.tabs.addTab(self.word_processor_tab, "Xử lý phiếu")
+        self.tabs.addTab(self.word_processor_tab, "Xử lý phiếu NXK (Vật tư)")
         
-        self.accounting_tab = AccountingTab()
-        self.tabs.addTab(self.accounting_tab, "Kế toán")
-        
-        self.batch_print_tab = BatchPrintTab()
-        self.tabs.addTab(self.batch_print_tab, "In hàng loạt phiếu thu - chi")
+        self.batch_processing_tab = AccountingTab()
+        self.tabs.addTab(self.batch_processing_tab, "Xử lý chứng từ (Kế toán)")
         
         layout.addWidget(self.tabs)
+        
+        printer_layout = QHBoxLayout()
+        printer_layout.addStretch()
+        
+        printer_layout.addWidget(QLabel("Máy in:"))
+        
+        self.printer_label = QLabel()
+        self.printer_label.setStyleSheet("color: gray;")
+        self.update_printer_info()
+        printer_layout.addWidget(self.printer_label)
+        
+        select_printer_btn = QPushButton("🖨️")
+        select_printer_btn.setToolTip("Chọn máy in (áp dụng cho tất cả tabs)")
+        select_printer_btn.setFixedWidth(30)
+        select_printer_btn.setStyleSheet("QPushButton { font-size: 14px; }")
+        select_printer_btn.clicked.connect(self.select_printer)
+        printer_layout.addWidget(select_printer_btn)
+        
+        layout.addLayout(printer_layout)
         self.setLayout(layout)
+    
+    def update_printer_info(self):
+        try:
+            current_printer = win32print.GetDefaultPrinter()
+            self.printer_label.setText(current_printer)
+        except:
+            self.printer_label.setText("Không có máy in")
+    
+    def select_printer(self):
+        try:
+            printers = [printer[2] for printer in win32print.EnumPrinters(2)]
+            
+            if not printers:
+                QMessageBox.warning(self, "Cảnh báo", "Không tìm thấy máy in nào!")
+                return
+            
+            current_printer = win32print.GetDefaultPrinter()
+            
+            current_index = 0
+            if current_printer in printers:
+                current_index = printers.index(current_printer)
+                
+            printer, ok = QInputDialog.getItem(
+                self, 
+                "Chọn máy in", 
+                "Chọn máy in mặc định (áp dụng cho tất cả tabs):", 
+                printers, 
+                current=current_index,
+                editable=False
+            )
+            
+            if ok and printer:
+                if printer != current_printer:
+                    win32print.SetDefaultPrinter(printer)
+                    self.update_printer_info()
+                    QMessageBox.information(self, "Thành công", f"Đã chọn máy in: {printer}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi", f"Không thể chọn máy in: {str(e)}")
 
 
 # ============================================================================
