@@ -2131,8 +2131,28 @@ class AccountingTab(QWidget):
             pythoncom.CoUninitialize()
     
     def _add_signature_table(self, doc, left_title, left_name, right_title, right_name):
-        rng = doc.Content
-        rng.Collapse(0)
+        for para in doc.Paragraphs:
+            para_text = para.Range.Text.strip()
+            if "ngày" in para_text and "tháng" in para_text and "năm" in para_text and "..." in para_text:
+                para.Range.Delete()
+                break
+        
+        if doc.Tables.Count > 0:
+            last_table = doc.Tables(doc.Tables.Count)
+            table_text = last_table.Range.Text.replace("\r", "").replace("\x07", "").strip()
+            if table_text == "":
+                last_table.Delete()
+        
+        data_table = None
+        if doc.Tables.Count > 0:
+            data_table = doc.Tables(doc.Tables.Count)
+        
+        if data_table:
+            rng = data_table.Range
+            rng.Collapse(0)
+        else:
+            rng = doc.Content
+            rng.Collapse(0)
         
         rng.InsertParagraphAfter()
         rng.Collapse(0)
